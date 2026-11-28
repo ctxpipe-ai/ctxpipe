@@ -4,9 +4,10 @@ import { z } from "zod"
 
 import { RELEVANCE_INTENTS } from "../../domain/workspaces/graph-relevance.js"
 import type { Ranking } from "../../domain/workspaces/related-ranking.js"
+import { SOURCE_TYPES } from "../../knowledge-plane/rows.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { knowledgeViewKey } from "../../models/knowledge-state.js"
-import { STATUS_RULES } from "../../retrieval/jev/disagreement.js"
+import { READINGS } from "../../retrieval/jev/disagreement.js"
 import { fitPage } from "../framework/budget.js"
 import {
   requireServed,
@@ -214,6 +215,12 @@ const resultSchema = z.object({
   title: z.string().nullable(),
   kind: z.string().nullable(),
   source: z.string(),
+  sourceType: z
+    .string()
+    .optional()
+    .describe(
+      `The kind of source: ${SOURCE_TYPES.join(", ")}. Only on the knowledge plane.`,
+    ),
   updatedAt: z.string(),
   summary: z.string().optional(),
   score: z.number(),
@@ -223,27 +230,33 @@ const resultSchema = z.object({
 })
 type RelatedResult = z.infer<typeof resultSchema>
 
-const positionSchema = z.object({
-  refs: z.array(z.string()).describe("The results that make one claim."),
-  status: z
-    .enum(["current", "superseded", "disputed", "scoped"])
+const claimSchema = z.discriminatedUnion("by", [
+  z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      predicate: z.string(),
+      by: z.literal("edge"),
+      source: z
+        .string()
+        .describe("Where the relation comes from. Empty when unknown."),
+      validFrom: z.string().nullable(),
+      validTo: z.string().nullable(),
+      confidence: z.number(),
+    })
+    .describe("A relation that the store holds, stated by the from document."),
+  z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      predicate: z.enum(READINGS),
+      by: z.literal("reading"),
+      confidence: z.number(),
+    })
     .describe(
-      "current: true now. superseded: replaced, or not valid now. disputed: contradicted, and no side wins. scoped: true only for a part of the question.",
+      "A reading of the model. REPLACES: from changes or replaces the claim of to. CONTRADICTS: the claims disagree. PARTLY_CONTRADICTS: they disagree, and the claim of from applies only to a part of the question. confidence: the lowest p(yes) of the model facts.",
     ),
-  reason: z
-    .object({ by: z.literal("tie-break"), rule: z.enum(STATUS_RULES) })
-    .describe("The rule of the disagreement step that gave the status."),
-  against: z
-    .array(
-      z.object({
-        position: z.number().int(),
-        label: z.enum(["contradicts", "updates"]),
-      }),
-    )
-    .describe(
-      "The positions (index in positions) that this one contradicts or updates.",
-    ),
-})
+])
 
 /**
  * Rankings by revision, parameters and ranking time, so that page 2 needs no
@@ -274,7 +287,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence and query match. Without the knowledge plane, edge confidence decreases with age, and the change intent also ranks newer changes first. The knowledge plane does not rank by age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. With positions, the top results are grouped by the claim they make, each with a status (current, superseded, disputed, scoped) and the positions it contradicts or updates: prefer a current position. Positions come only on the knowledge plane. Without positions, compare the updatedAt of the results and read the newest source. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence and query match. Without the knowledge plane, edge confidence decreases with age, and the change intent also ranks newer changes first. The knowledge plane does not rank by age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. On the knowledge plane, claims show what connects the top results: each stored relation between two of them (by edge), with its predicate, source, validFrom, validTo and confidence, and each reading of the model (by reading: REPLACES, CONTRADICTS or PARTLY_CONTRADICTS), with its confidence. A claim is evidence, not a verdict; a SUPERSEDES edge is a claim too. Compare the times of the results, and on the knowledge plane also the claims and the source types, and decide yourself which source holds. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
@@ -285,10 +298,12 @@ export const getRelatedTool = defineMcpReadTool({
     partialReason: z.string().optional(),
     cappedHubs: z.array(z.string()).optional(),
     results: z.array(resultSchema),
-    positions: z
-      .array(positionSchema)
+    claims: z
+      .array(claimSchema)
       .optional()
-      .describe("The disagreement positions of the top results."),
+      .describe(
+        "The claims between the top results whose later end is on this page.",
+      ),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
     notices: knowledgeNoticesSchema,
@@ -364,6 +379,21 @@ export const getRelatedTool = defineMcpReadTool({
     const items: RelatedResult[] = explain
       ? results
       : results.map(({ path: _path, ...rest }) => rest)
+    // A page shows each claim whose later end is on it: one end on the
+    // page, and the other on it or on an earlier page. Thus each claim is
+    // on one page, and it fits the budget of that page with its results.
+    const earlier = new Set(items.slice(0, offset).map(({ ref }) => ref))
+    const claimsOf = (
+      claims: NonNullable<Ranking["claims"]>,
+      page: RelatedResult[],
+    ) => {
+      const onPage = new Set(page.map(({ ref }) => ref))
+      return claims.filter(
+        ({ from, to }) =>
+          (onPage.has(from) || onPage.has(to)) &&
+          [from, to].every((ref) => onPage.has(ref) || earlier.has(ref)),
+      )
+    }
     const build = (page: RelatedResult[]) => ({
       workspace: workspace.slug,
       served,
@@ -372,7 +402,7 @@ export const getRelatedTool = defineMcpReadTool({
       ...(header.partialReason ? { partialReason: header.partialReason } : {}),
       ...(header.cappedHubs.length ? { cappedHubs: header.cappedHubs } : {}),
       results: page,
-      ...(header.positions ? { positions: header.positions } : {}),
+      ...(header.claims ? { claims: claimsOf(header.claims, page) } : {}),
       ...(notices.length ? { notices } : {}),
     })
     const { page, nextOffset, truncated } = fitPage(items, {

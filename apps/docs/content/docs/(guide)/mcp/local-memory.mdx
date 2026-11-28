@@ -7,8 +7,8 @@ description: How ctxpipe helps coding agents remember what your team teaches the
   Local memory builds on features of coding agents (Cursor, Claude Code, Codex,
   OpenCode, VS Code) that change from month to month, and on ideas about agent
   memory that are still settling. Expect this page and `ctxpipe memory init` to
-  change frequently. After you upgrade the CLI, run `npx ctxpipe memory init` again
-  to get the latest hooks, rules, and skills.
+  change frequently. The hooks always run the newest CLI release. Run
+  `npx ctxpipe memory init` again to get the latest rules and skills.
 </Callout>
 
 ## What it is
@@ -138,16 +138,26 @@ The installed `memory-search` skill describes the full procedure.
 
 - `npx ctxpipe memory status` and `npx ctxpipe memory doctor` show whether memory
   is set up, and list the memory files that are not committed yet.
-- The hooks call `npx -y ctxpipe@<version> memory capture`, with the version of
-  the CLI that wrote them. A new CLI release does not run in your repository
-  until you run `memory init` again. Agents use `memory capture promote <id>`
+- The hooks call `npx -y ctxpipe memory capture`, with no version. Each hook
+  run uses the newest CLI release. Agents use `memory capture promote <id>`
   and `memory capture dismiss <id>` to keep or discard a candidate. You do not
   run these commands yourself.
-- Run `npx ctxpipe memory init` again to move the hooks to a new CLI version.
-  It refreshes the rules, skills, and hooks, and keeps your own memory files. It also removes
-  retired pieces from older versions: the `ctxpipe-memory` MCP entry, old memory
-  skills, and an AgentMemory-era `README.md`. It also moves `patterns.md` into
+- Run `npx ctxpipe memory init` again to refresh the rules, skills, and hooks.
+  It keeps your own memory files. It also removes retired pieces from older
+  versions: the `ctxpipe-memory` MCP entry, old memory skills, and an
+  AgentMemory-era `README.md`. It also moves `patterns.md` into
   `lessons-learned.md`.
-- Hooks from CLI 0.2.0 call `memory mcp` and `memory hook`. These commands do
-  nothing now. They write a migrate line to stderr (the hook or MCP log) and exit with code 0.
-  Run `npx ctxpipe memory init` to replace these hooks.
+- A setup from CLI 0.2.0 repairs itself at the next session. Its old hooks
+  and MCP entries call `memory hook` and `memory mcp`. These commands now
+  remove each old entry, in the repository and in your home directory. A
+  `ctxpipe-memory` server in `~/.claude.json` is removed with
+  `claude mcp remove`. In a repository that has `.ai/memory`, they also apply
+  the `memory init` upgrade. They write the current capture hooks of the
+  repository for each host that had an old entry in the repository. They exit
+  with code 0 and write one line to stderr (the hook or MCP log).
+- An old entry in your home directory is only removed, and it does not
+  become a user-scope capture hook. Such a hook writes `.ai/memory/events/`
+  into each directory where a session starts. If a repository got its capture
+  only from a home entry, run `npx ctxpipe memory init` in it. The repair
+  stops with no change when a path goes through a symlink, or when a JSON
+  file that it changes does not parse.

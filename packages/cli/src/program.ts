@@ -15,6 +15,7 @@ import {
   MCP_AUTH_MODES,
 } from "./constants.js"
 import {
+  runLegacyMemoryRepair,
   runMemoryCaptureDismiss,
   runMemoryCaptureFinalize,
   runMemoryCaptureObserve,
@@ -548,19 +549,15 @@ MCP auth:
     })
 
   // CLI 0.2.0 wrote hooks and MCP entries that call these commands; 0.3.0
-  // removed them. Each stub writes the migrate step to stderr and exits 0, so
-  // an old hook does not fail the agent session. Stdout stays empty because a
-  // host can parse it (MCP JSON-RPC, Cursor hook JSON).
-  for (const name of ["mcp", "hook"]) {
+  // removed them. They now repair the repository (see runLegacyMemoryRepair).
+  for (const name of ["mcp", "hook"] as const) {
     memory
       .command(name, { hidden: true })
-      .description(`Removed in 0.3.0. Run \`npx ctxpipe memory init\`.`)
+      .description("Removed in 0.3.0. Repairs a 0.2.0 memory setup.")
       .argument("[args...]")
       .allowUnknownOption()
-      .action(() => {
-        process.stderr.write(
-          `ctxpipe: \`memory ${name}\` was removed. Run \`npx ctxpipe memory init\` to migrate this repo's memory hooks.\n`,
-        )
+      .action(async () => {
+        await runLegacyMemoryRepair(name)
       })
   }
 

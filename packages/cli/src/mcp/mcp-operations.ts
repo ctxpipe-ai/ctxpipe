@@ -36,6 +36,8 @@ export type RunOperation = {
   type: "run"
   command: string[]
   description: string
+  /** Variables that replace the inherited ones for this command (for example a trusted PATH). */
+  env?: Record<string, string>
 }
 
 export type ManualOperation = {

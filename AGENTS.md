@@ -145,7 +145,7 @@ Use one shared Postgres on the host (port 5433) and one database per linked work
 - **Stay on the current branch** for follow-up planning/implementation sessions. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`** (or the user explicitly asks for a new branch).
 - Multiple plans/features in one PR branch are normal.
 - If you are on `main` and need isolated work, then create a feature branch from `main`.
-- **GitHub identity**: Paseo agents on the Mac Studio push as `ctxpipe-factory[bot]`. A person pushes `.github/workflows` changes; agents use no other login.
+- **GitHub identity**: Paseo agents on the Mac Studio push as `ctxpipe-factory[bot]`, `.github/workflows` changes included; agents use no other login.
 
 ## Local agent memory
 

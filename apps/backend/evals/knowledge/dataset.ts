@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises"
 import { z } from "zod"
 
 import { workspaceRootPathSchema } from "../../src/domain/workspaces/root-path.js"
-import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 
 /*
  * The question set of the knowledge-plane evals (ADR-069 decision 5),
@@ -56,6 +55,18 @@ const corpusSchema = z.strictObject({
   /** The id of the Workspace fixture that holds the context repo. */
   workspace: id,
 })
+
+/**
+ * The status of an expected position: a label of the data, for the metric
+ * of the disagreements shown. The product gives no status (ADR-068
+ * decision 4).
+ */
+export const POSITION_STATUSES = [
+  "current",
+  "superseded",
+  "disputed",
+  "scoped",
+] as const
 
 const positionSchema = z.strictObject({
   refs: z.array(path).min(1),

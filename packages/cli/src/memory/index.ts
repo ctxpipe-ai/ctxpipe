@@ -7,3 +7,4 @@ export {
   runMemoryCaptureSummary,
 } from "./run-capture.js"
 export { runMemoryStatus, runMemoryDoctor, runMemoryStop } from "./run-meta.js"
+export { runLegacyMemoryRepair } from "./repair.js"

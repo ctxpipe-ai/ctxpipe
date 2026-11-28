@@ -351,6 +351,45 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
 ]
 
 /**
+ * A Workspace for the claims between the top results (CTX-1720). The seed
+ * mentions two plans that answer. The new plan states that it supersedes the
+ * old plan. The walk of one layer reads no relation of the two plans.
+ */
+const claimUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "claims/seed.md",
+    kind: "Note",
+    title: "Claims seed",
+    text: "The start.",
+    claims: [
+      { to: "claims/new.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "claims/old.md", predicate: "MENTIONS", confidence: 0.8 },
+    ],
+  },
+  {
+    path: "claims/new.md",
+    kind: "Decision",
+    title: "New plan",
+    text: "The new plan. answer",
+    claims: [
+      {
+        to: "claims/old.md",
+        predicate: "SUPERSEDES",
+        confidence: 0.7,
+        validFrom: "2026-03-01T00:00:00Z",
+        validTo: "2100-01-01T00:00:00Z",
+      },
+    ],
+  },
+  {
+    path: "claims/old.md",
+    kind: "Decision",
+    title: "Old plan",
+    text: "The old plan. answer",
+  },
+]
+
+/**
  * A Workspace for the steps of CTX-1534. Two paths of the same length go
  * from the seed to the answer, each through a middle document that is only
  * a hub. The dead end is a hub with no answer after it. The aside is
@@ -499,8 +538,8 @@ function planeRows(
       dstDoc: key(claim.to),
       confidence: claim.confidence,
       validFrom: claim.validFrom ? new Date(claim.validFrom) : null,
-      validTo: null,
-      source: "",
+      validTo: claim.validTo ? new Date(claim.validTo) : null,
+      source: "git",
       altText: "",
       observedAt,
     })),
@@ -752,12 +791,14 @@ describe("the knowledge reader seam", () => {
     await planeOnly("diamond", diamondUnits)
     await planeOnly("bridge", bridgeUnits)
     await planeOnly("named", namedUnits)
+    await planeOnly("claims", claimUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
     await markReady(ids.diamond as string)
     await markReady(ids.bridge as string)
     await markReady(ids.named as string)
+    await markReady(ids.claims as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -1046,11 +1087,20 @@ describe("the knowledge reader seam", () => {
     const planeSearch = structured(await searchCall({ workspaces: ["ready"] }))
     const planeRelated = structured(await relatedCall({ maxDepth: 2 }))
     expect(shapeOf(planeSearch)).toEqual(shapeOf(legacySearch))
-    // Only the plane gives the disagreement positions.
-    const { positions, ...rankedOnly } = planeRelated
-    expect(positions).toEqual(expect.any(Array))
-    expect(shapeOf(rankedOnly)).toEqual(shapeOf(legacyRelated))
-    expect(legacyRelated.positions).toBeUndefined()
+    // Only the plane gives the claims between the top results, and the
+    // source type of each result.
+    const { claims, results, ...rankedOnly } = planeRelated
+    expect(claims).toEqual(expect.any(Array))
+    const { results: legacyResults, ...legacyRankedOnly } = legacyRelated
+    expect(shapeOf(rankedOnly)).toEqual(shapeOf(legacyRankedOnly))
+    expect(
+      shapeOf(
+        (results as Record<string, unknown>[]).map(
+          ({ sourceType: _sourceType, ...result }) => result,
+        ),
+      ),
+    ).toEqual(shapeOf(legacyResults))
+    expect(legacyRelated.claims).toBeUndefined()
     expect(shapeOf(planeSearch)).toMatchSnapshot()
     expect(shapeOf(planeRelated)).toMatchSnapshot()
   })
@@ -1119,7 +1169,7 @@ describe("the knowledge reader seam", () => {
       { candidates: 1 },
     ])
     // The disagreement step: one call with the facts of the pair and of
-    // each item. Code gives the status.
+    // each item. Code reads them as readings.
     expect(disagreementRequests).toEqual([
       [
         "same.1.2",
@@ -1130,18 +1180,14 @@ describe("the knowledge reader seam", () => {
         "scoped.2",
       ],
     ])
-    expect(content.positions).toEqual([
+    // A reading of the model, as a claim with no verdict on a result.
+    expect(content.claims).toEqual([
       {
-        refs: ["knowledge/teams/payments.md"],
-        status: "current",
-        reason: { by: "tie-break", rule: "updates" },
-        against: [{ position: 1, label: "updates" }],
-      },
-      {
-        refs: ["knowledge/decisions/adr-7.md"],
-        status: "superseded",
-        reason: { by: "tie-break", rule: "updates" },
-        against: [{ position: 0, label: "updates" }],
+        from: "knowledge/teams/payments.md",
+        to: "knowledge/decisions/adr-7.md",
+        predicate: "REPLACES",
+        by: "reading",
+        confidence: 0.9,
       },
     ])
   })
@@ -1239,30 +1285,124 @@ describe("the knowledge reader seam", () => {
     expect(named.results).toEqual([])
   })
 
-  it("get_related tells agents about the positions in its description and output schema", async () => {
+  it("get_related tells agents about the claims, with no verdict, in its description and output schema", async () => {
     const { tools } = await related.listTools()
     const tool = tools.find((item) => item.name === "get_related")
-    expect(tool?.description).toContain(
-      "status (current, superseded, disputed, scoped)",
-    )
+    expect(tool?.description).toContain("A claim is evidence, not a verdict")
+    expect(tool?.description).not.toMatch(/prefer a current|superseded/i)
     const properties = tool?.outputSchema?.properties as Record<
       string,
-      { description?: string; items: { properties: Record<string, unknown> } }
+      {
+        description?: string
+        items: { oneOf?: { properties: Record<string, unknown> }[] }
+      }
     >
-    const positions = properties.positions
-    if (!positions) throw new Error("get_related has no positions output")
-    expect(positions.description).toBe(
-      "The disagreement positions of the top results.",
+    const claims = properties.claims
+    if (!claims) throw new Error("get_related has no claims output")
+    expect(claims.description).toBe(
+      "The claims between the top results whose later end is on this page.",
     )
-    expect(positions.items.properties.status).toMatchObject({
-      enum: ["current", "superseded", "disputed", "scoped"],
-      description: expect.stringContaining("superseded: replaced"),
-    })
-    expect(Object.keys(positions.items.properties).sort()).toEqual([
-      "against",
-      "reason",
-      "refs",
-      "status",
+    expect(
+      claims.items.oneOf?.map(({ properties }) =>
+        Object.keys(properties).sort(),
+      ),
+    ).toEqual([
+      [
+        "by",
+        "confidence",
+        "from",
+        "predicate",
+        "source",
+        "to",
+        "validFrom",
+        "validTo",
+      ],
+      ["by", "confidence", "from", "predicate", "to"],
+    ])
+    expect(properties.positions).toBeUndefined()
+  })
+
+  it("on: get_related shows a stored relation between two top results as a claim, with its source, times and confidence", async () => {
+    const content = structured(
+      await relatedCall({
+        workspace: "claims",
+        seeds: ["claims/seed.md"],
+        maxDepth: 1,
+      }),
+    )
+    expect(
+      (content.results as { ref: string; sourceType?: string }[]).map(
+        ({ ref, sourceType }) => ({ ref, sourceType }),
+      ),
+    ).toEqual([
+      { ref: "claims/new.md", sourceType: "docs" },
+      { ref: "claims/old.md", sourceType: "docs" },
+    ])
+    // The walk of one layer reads no relation of the plans, so the claims
+    // read them. The SUPERSEDES is a claim like each other relation, and
+    // the reading of the model comes after it.
+    expect(content.claims).toEqual([
+      {
+        from: "claims/new.md",
+        to: "claims/old.md",
+        predicate: "SUPERSEDES",
+        by: "edge",
+        source: "git",
+        validFrom: "2026-03-01T00:00:00.000Z",
+        validTo: "2100-01-01T00:00:00.000Z",
+        confidence: 0.7,
+      },
+      {
+        from: "claims/new.md",
+        to: "claims/old.md",
+        predicate: "REPLACES",
+        by: "reading",
+        confidence: 0.9,
+      },
+    ])
+    // With one result for each page, the claims come on the page of their
+    // later end: the second page.
+    const pageCall = (cursor?: string) =>
+      relatedCall({
+        workspace: "claims",
+        seeds: ["claims/seed.md"],
+        maxDepth: 1,
+        limit: 1,
+        ...(cursor ? { cursor } : {}),
+      })
+    const firstPage = structured(await pageCall())
+    expect(
+      (firstPage.results as { ref: string }[]).map(({ ref }) => ref),
+    ).toEqual(["claims/new.md"])
+    expect(firstPage.claims).toEqual([])
+    const secondPage = structured(await pageCall(firstPage.cursor as string))
+    expect(
+      (secondPage.results as { ref: string }[]).map(({ ref }) => ref),
+    ).toEqual(["claims/old.md"])
+    expect(secondPage.claims).toEqual(content.claims)
+  })
+
+  it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {
+    const claimsIn = async (from: string, to: string) =>
+      (
+        structured(
+          await relatedCall({
+            workspace: "claims",
+            seeds: ["claims/seed.md"],
+            maxDepth: 1,
+            validBetween: { from, to },
+          }),
+        ).claims as { predicate: string; by: string }[]
+      ).map(({ predicate, by }) => ({ predicate, by }))
+    // The SUPERSEDES holds from March 2026.
+    expect(
+      await claimsIn("2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"),
+    ).toEqual([{ predicate: "REPLACES", by: "reading" }])
+    expect(
+      await claimsIn("2026-02-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"),
+    ).toEqual([
+      { predicate: "SUPERSEDES", by: "edge" },
+      { predicate: "REPLACES", by: "reading" },
     ])
   })
 
@@ -1330,7 +1470,7 @@ describe("the knowledge reader seam", () => {
       "knowledge/decisions/adr-7.md",
       "knowledge/databases/ledger.md",
     ])
-    // The same request, and the same positions, as the walk of three layers
+    // The same request, and the same claims, as the walk of three layers
     // that ends after layer 2 and asks the facts after the walk.
     expect(disagreementRequests).toEqual([
       [
@@ -1342,18 +1482,14 @@ describe("the knowledge reader seam", () => {
         "scoped.2",
       ],
     ])
-    expect(content.positions).toEqual([
+    // A reading of the model, as a claim with no verdict on a result.
+    expect(content.claims).toEqual([
       {
-        refs: ["knowledge/teams/payments.md"],
-        status: "current",
-        reason: { by: "tie-break", rule: "updates" },
-        against: [{ position: 1, label: "updates" }],
-      },
-      {
-        refs: ["knowledge/decisions/adr-7.md"],
-        status: "superseded",
-        reason: { by: "tie-break", rule: "updates" },
-        against: [{ position: 0, label: "updates" }],
+        from: "knowledge/teams/payments.md",
+        to: "knowledge/decisions/adr-7.md",
+        predicate: "REPLACES",
+        by: "reading",
+        confidence: 0.9,
       },
     ])
   })
@@ -1370,7 +1506,7 @@ describe("the knowledge reader seam", () => {
         }),
       )
       expect(content.partial).toBe(false)
-      expect(content.positions).toBeDefined()
+      expect(content.claims).toBeDefined()
     } finally {
       ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
     }
@@ -1644,7 +1780,7 @@ describe("the knowledge reader seam", () => {
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
     ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
-    expect(content.positions).toBeUndefined()
+    expect(content.claims).toBeUndefined()
   }, 15_000)
 
   it("on: with no time budget (0, the evals), get_related waits for a slow Jev call and returns the full ranking", async () => {
@@ -1663,14 +1799,18 @@ describe("the knowledge reader seam", () => {
         "knowledge/decisions/adr-7.md",
         "knowledge/databases/ledger.md",
       ])
-      // The ledger is a step, not an answer, so no position holds it.
-      expect(content.positions).toHaveLength(2)
+      // The ledger is a step, not an answer, so no claim names it.
+      expect(
+        (content.claims as { from: string; to: string }[]).flatMap(
+          ({ from, to }) => [from, to],
+        ),
+      ).not.toContain("knowledge/databases/ledger.md")
     } finally {
       ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
     }
   }, 15_000)
 
-  it("on: when the time budget ends in the disagreement step, get_related has the results and no positions", async () => {
+  it("on: when the time budget ends in the disagreement step, get_related has the results and no claims", async () => {
     // Calls 1 to 3 are the layers, call 4 the pairs.
     slowJevCall = 4
     const content = structured(await relatedCall({ maxDepth: 3 }))
@@ -1680,7 +1820,7 @@ describe("the knowledge reader seam", () => {
     })
     // The two results that answer, and the ledger, the step to the decision.
     expect((content.results as unknown[]).length).toBe(3)
-    expect(content.positions).toBeUndefined()
+    expect(content.claims).toBeUndefined()
   }, 15_000)
 
   it("on: when Jev fails in the disagreement step, get_related fails with judge_unavailable", async () => {

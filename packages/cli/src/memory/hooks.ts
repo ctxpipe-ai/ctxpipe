@@ -13,14 +13,13 @@ import {
   createOperationContext,
 } from "../mcp/mcp-operations.js"
 import { relativePath, scopesFor } from "../mcp/paths.js"
-import { pinnedCli } from "../version.js"
 import { AI_MEMORY_RULE_BODY } from "./seed.js"
 
 const OBSERVE = (host: string, event: string) =>
-  `${pinnedCli} memory capture observe --host ${host} --event ${event}`
+  `npx -y ctxpipe memory capture observe --host ${host} --event ${event}`
 /** Observe then summarize in one process (hosts that run Stop handlers in parallel). */
 const FINALIZE = (host: string, event: string) =>
-  `${pinnedCli} memory capture finalize --host ${host} --event ${event}`
+  `npx -y ctxpipe memory capture finalize --host ${host} --event ${event}`
 
 const CURSOR_HOOKS = {
   beforeSubmitPrompt: [{ command: OBSERVE("cursor", "beforeSubmitPrompt") }],
@@ -73,7 +72,7 @@ export const OPENCODE_PLUGIN = `// ctxpipe local memory capture. Managed by \`np
 export const CtxpipeMemory = async ({ client, $, directory }) => {
   const capture = async (command, event, payload) => {
     const input = new Response(JSON.stringify({ cwd: directory, ...payload }))
-    const out = await $\`${pinnedCli} memory capture \${command} --host opencode --event \${event} < \${input}\`
+    const out = await $\`npx -y ctxpipe memory capture \${command} --host opencode --event \${event} < \${input}\`
       .cwd(directory)
       .quiet()
       .nothrow()
@@ -127,17 +126,17 @@ JSON payload that includes \`cwd\` **and** fact-bearing text (\`prompt\`,
 
 \`\`\`bash
 printf '%s' '{"cwd":".","prompt":"We decided the billing service runs on port 4000"}' \\
-  | ${pinnedCli} memory capture observe --host ${host} --event PostToolUse
+  | npx -y ctxpipe memory capture observe --host ${host} --event PostToolUse
 printf '%s' '{"cwd":".","last_assistant_message":"Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth."}' \\
-  | ${pinnedCli} memory capture finalize --host ${host} --event Stop
+  | npx -y ctxpipe memory capture finalize --host ${host} --event Stop
 \`\`\`
 
 When candidates surface, write durable Markdown, update the matching \`index.md\`, then:
 
 \`\`\`bash
-${pinnedCli} memory capture promote <candidateId>
-# or: ${pinnedCli} memory capture dismiss <candidateId>
-${pinnedCli} memory capture summary
+npx -y ctxpipe memory capture promote <candidateId>
+# or: npx -y ctxpipe memory capture dismiss <candidateId>
+npx -y ctxpipe memory capture summary
 \`\`\`
 
 Commit \`.ai/memory/\` changes with the work they came from, on that work's branch, and
@@ -146,7 +145,7 @@ ${MEMORY_INSTRUCTION_MARKER_END}
 `
 }
 
-const CODEX_HOOKS_MARKER_START = "# BEGIN ctxpipe-memory-capture"
+export const CODEX_HOOKS_MARKER_START = "# BEGIN ctxpipe-memory-capture"
 const CODEX_HOOKS_MARKER_END = "# END ctxpipe-memory-capture"
 
 function codexHooksToml(): string {
@@ -169,7 +168,7 @@ ${CODEX_HOOKS_MARKER_END}
 `
 }
 
-/** Matches our capture command, pinned (`ctxpipe@1.2.3`) or not (before the pin). */
+/** Matches our capture command, also with a version pin (`ctxpipe@1.2.3`). Init replaces a pinned hook with the unpinned one. */
 function commandIsCtxpipeCapture(cmd: unknown): boolean {
   return (
     typeof cmd === "string" && /\bctxpipe(@\S+)? memory capture\b/.test(cmd)

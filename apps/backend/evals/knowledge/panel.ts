@@ -1,11 +1,11 @@
 import { z } from "zod"
 
 import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
-import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 import { askJson, BudgetExceededError, dataBlock } from "./chat.js"
 import {
   type Dataset,
+  POSITION_STATUSES,
   type Position,
   type Question,
   onePositionEach,

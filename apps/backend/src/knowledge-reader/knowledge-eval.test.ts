@@ -12,9 +12,9 @@ import {
   readDataset,
 } from "../../evals/knowledge/dataset.js"
 import {
+  disagreementsShown,
   ndcgAt,
   percentile,
-  positionsCorrect,
   recallAt,
 } from "../../evals/knowledge/metrics.js"
 import {
@@ -197,21 +197,43 @@ describe("the metrics", () => {
     expect(ndcgAt(["x"], gold, 10)).toBe(0)
   })
 
-  it("positions are correct per expected ref", () => {
+  it("disagreements are shown per pair of refs in two expected positions", () => {
     const expected = [
-      { refs: ["old"], status: "superseded" as const },
+      { refs: ["old", "older"], status: "superseded" as const },
       { refs: ["new"], status: "current" as const },
     ]
+    const claim = (from: string, to: string, predicate: string) => ({
+      from,
+      to,
+      predicate,
+    })
+    // A stored SUPERSEDES and a reading, in either direction. A pair in one
+    // expected position is not scored.
     expect(
-      positionsCorrect(expected, [{ refs: ["new", "old"], status: "current" }]),
-    ).toBe(0.5)
-    expect(
-      positionsCorrect(expected, [
-        { refs: ["old"], status: "superseded" },
-        { refs: ["new"], status: "current" },
+      disagreementsShown(expected, [
+        claim("new", "old", "SUPERSEDES"),
+        claim("older", "new", "CONTRADICTS"),
+        claim("old", "older", "CONTRADICTS"),
       ]),
     ).toBe(1)
-    expect(positionsCorrect(expected, [])).toBe(0)
+    expect(
+      disagreementsShown(expected, [
+        claim("new", "old", "REPLACES"),
+        claim("new", "older", "PARTLY_CONTRADICTS"),
+      ]),
+    ).toBe(1)
+    // A relation that tells no disagreement, and a replacement in the
+    // wrong direction, do not count.
+    expect(
+      disagreementsShown(expected, [
+        claim("new", "old", "LINKS_TO"),
+        claim("older", "new", "REPLACES"),
+      ]),
+    ).toBe(0)
+    expect(
+      disagreementsShown(expected, [claim("old", "new", "CONTRADICTS")]),
+    ).toBe(0.5)
+    expect(disagreementsShown(expected, [])).toBe(0)
   })
 
   it("percentiles use the nearest rank", () => {
@@ -702,11 +724,7 @@ describe("the replay of a Jev question in another call", () => {
       intent: "why",
       candidates: ids.map((id) => ({ id, text: `The text of ${id}.`, meta })),
     })
-  const item = (id: string) => ({
-    id,
-    passage: `The passage of ${id}.`,
-    meta: { ...meta, documentKey: id },
-  })
+  const item = (id: string) => ({ id, passage: `The passage of ${id}.` })
 
   /** Record the calls of `ask` with a Jev that answers from `record`. */
   async function recorded(
@@ -804,10 +822,23 @@ describe("the replay of a Jev question in another call", () => {
 
   it("misses a call with an unrecorded question; --unrecorded-yes fills only a disagreement fact", async () => {
     const calls = await recorded(
-      { "answers.1": 0.9, "explore.1": 0.2, "scoped.1": 0.4 },
+      {
+        "answers.1": 0.9,
+        "explore.1": 0.2,
+        "same.1.2": 0.1,
+        "disagree.1.2": 0.1,
+        "replaces.1.2": 0.1,
+        "replaces.2.1": 0.1,
+        "scoped.1": 0.4,
+        "scoped.2": 0.1,
+      },
       async () => {
         await judgeWhy(["a"])
-        await askDisagreementFacts({ question: "q", items: [item("a")] })
+        // One item asks no fact, so the recording asks about a pair.
+        await askDisagreementFacts({
+          question: "q",
+          items: [item("a"), item("b")],
+        })
       },
     )
     // c is new: a deeper walk, for example, stays incomplete, also with
@@ -1009,6 +1040,42 @@ describe("the product time budget", () => {
       "**The kept run had a time budget of 3000 ms, and this run has no time budget.**",
     )
   })
+
+  it("reads a kept report from before CTX-1720, which scored positions", () => {
+    const question = {
+      arm: "plane",
+      question: "q",
+      searchMs: 10,
+      relatedMs: 20,
+      jevCalls: 1,
+      jevQuestions: 2,
+      costUsd: 0.001,
+    }
+    const kept = keptRunSchema.parse({
+      run: { mode: "live" },
+      questions: [
+        {
+          ...question,
+          metrics: {
+            recall5: 1,
+            ndcg10: 1,
+            searchRecall50: 1,
+            traversalRecall: 1,
+            noAnswer: null,
+            positions: 0.5,
+          },
+        },
+      ],
+    })
+    expect(kept.questions[0]?.metrics).toEqual({
+      recall5: 1,
+      ndcg10: 1,
+      searchRecall50: 1,
+      traversalRecall: 1,
+      noAnswer: null,
+      disagreements: null,
+    })
+  })
 })
 
 describe("the comparison with the kept run", () => {
@@ -1058,7 +1125,7 @@ describe("the comparison with the kept run", () => {
               searchRecall50: 1,
               traversalRecall: null,
               noAnswer: null,
-              positions: null,
+              disagreements: null,
             },
             searchMs: 10,
             relatedMs: null,

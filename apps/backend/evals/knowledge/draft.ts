@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 
 import { z } from "zod"
 
-import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 import {
   askJson,
@@ -12,7 +11,12 @@ import {
   RefusedError,
   refusalRecordSchema,
 } from "./chat.js"
-import { CATEGORIES, type Corpus, type Question } from "./dataset.js"
+import {
+  CATEGORIES,
+  type Corpus,
+  POSITION_STATUSES,
+  type Question,
+} from "./dataset.js"
 import { questionProblems, questionSchema } from "./dataset.js"
 import { type CorpusDocument, termIndex } from "./documents.js"
 

@@ -2,6 +2,7 @@ import { chat } from "@tanstack/ai"
 import { z } from "zod"
 
 import { abortAfter } from "../../lib/abortAfter.js"
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   type GitPack,
@@ -293,6 +294,7 @@ export async function updateFolderList(input: {
         name: "workspace.folder-list",
         outputName: "agents_md_folder_list",
       }),
+      threadId: oneShotThreadId("workspace.folder-list"),
       systemPrompts: [INSTRUCTIONS],
       messages: [
         {

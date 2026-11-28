@@ -437,7 +437,7 @@ describe("the knowledge eval harness", () => {
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 0,
-            positions: null,
+            disagreements: null,
           },
           plane: {
             recall5: 1,
@@ -445,7 +445,7 @@ describe("the knowledge eval harness", () => {
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 1,
-            positions: 1,
+            disagreements: 1,
           },
         },
         holdout: {
@@ -455,7 +455,7 @@ describe("the knowledge eval harness", () => {
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 0,
-            positions: null,
+            disagreements: null,
           },
           plane: {
             recall5: 1,
@@ -463,7 +463,7 @@ describe("the knowledge eval harness", () => {
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 1,
-            positions: 1,
+            disagreements: 1,
           },
         },
       },
@@ -841,11 +841,10 @@ describe("the knowledge eval harness", () => {
     // At a keepAt of 0.95, Jev keeps no hit of the plane (it gave 0.9).
     // Thus each plane search says "no answer", and the retrieval metrics
     // score it as an empty result (CTX-1562): each answerable question gets
-    // worse, with recall@5 0. No fact of a disagreement has a position, so
-    // the positions get worse too. A gold
-    // document of get_related stays a step, because Jev gave it a
-    // p(explore) of 0.9 (CTX-1534), so traversal recall stays. A no-answer
-    // stays correct.
+    // worse, with recall@5 0. No answer has a claim, so the disagreements
+    // shown get worse too. A gold document of get_related stays a step,
+    // because Jev gave it a p(explore) of 0.9 (CTX-1534), so traversal
+    // recall stays. A no-answer stays correct.
     const answerable = rescored.questions.filter(
       (question) =>
         question.arm === "plane" && question.category !== "no-answer",
@@ -883,8 +882,8 @@ describe("the knowledge eval harness", () => {
       )?.metrics.noAnswer,
     ).toBe(1)
     // The keep-or-revert rule reads the plane against the kept run: the
-    // retrieval metrics and the positions of the hold-out set get worse, and
-    // a replay gives no latency guard.
+    // retrieval metrics and the disagreements shown of the hold-out set get
+    // worse, and a replay gives no latency guard.
     const round = (values: Record<string, number | null>) =>
       Object.fromEntries(
         Object.entries(values).map(([key, value]) => [
@@ -900,25 +899,25 @@ describe("the knowledge eval harness", () => {
         {
           "category": "all",
           "change": {
+            "disagreements": -1,
             "ndcg10": -1,
             "noAnswer": 0,
-            "positions": -1,
             "recall5": -1,
             "searchRecall50": -1,
             "traversalRecall": 0,
           },
           "kept": {
+            "disagreements": 1,
             "ndcg10": 1,
             "noAnswer": 1,
-            "positions": 1,
             "recall5": 1,
             "searchRecall50": 1,
             "traversalRecall": 1,
           },
           "now": {
+            "disagreements": 0,
             "ndcg10": 0,
             "noAnswer": 1,
-            "positions": 0,
             "recall5": 0,
             "searchRecall50": 0,
             "traversalRecall": 1,
@@ -972,11 +971,13 @@ describe("the knowledge eval harness", () => {
           hedged: 0,
           errors: 0,
         },
+        // A walk with one possible top result asks no disagreement fact:
+        // one item has no pair, so it has no reading.
         now: {
           searchP95Ms: null,
           relatedP95Ms: null,
-          jevCallsPerQuestion: 3,
-          jevQuestionsPerQuestion: 35.75,
+          jevCallsPerQuestion: 2.75,
+          jevQuestionsPerQuestion: 35.5,
           costPerQuestionUsd: 0.003,
           hedged: 0,
           errors: 0,
@@ -989,18 +990,18 @@ describe("the knowledge eval harness", () => {
     )
     expect(markdown).toContain("## The plane against the kept run")
     expect(markdown).toContain(
-      "| holdout | all | 4 | positions correct | 1.000 | 0.000 | -1.000 |",
+      "| holdout | all | 4 | disagreements shown | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
-      "| holdout | 4 | Jev questions / question | 49.000 | 35.750 | -13.250 |",
+      "| holdout | 4 | Jev questions / question | 49.000 | 35.500 | -13.500 |",
     )
   })
 
   it("scores a change of a fact threshold again from the kept calls, with no model call", async () => {
     const before = { ...requests }
     const recorded = await readRun(join(folder, "live"))
-    // At 0.95, no item changes or replaces another, so each pair
-    // contradicts. The rows tie on each rule, so each position is disputed.
+    // At 0.95, no item changes or replaces another, so each pair of the
+    // disagreement has the reading CONTRADICTS, which shows it too.
     const rescored = await run("rescore-facts", {
       settings: { replacesAt: 0.95 },
       capUsd: 0,
@@ -1011,15 +1012,15 @@ describe("the knowledge eval harness", () => {
     expect(rescored.incomplete).toEqual([])
     expect(
       rescored.questions
-        .filter((question) => question.metrics.positions !== null)
+        .filter((question) => question.metrics.disagreements !== null)
         .map(({ question, metrics }) => ({
           question,
-          positions: metrics.positions,
+          disagreements: metrics.disagreements,
         })),
     ).toEqual([
-      { question: "local-dev-infra", positions: 0 },
-      { question: "agent-memory", positions: 0 },
-      { question: "ops-observability", positions: 0 },
+      { question: "local-dev-infra", disagreements: 1 },
+      { question: "agent-memory", disagreements: 1 },
+      { question: "ops-observability", disagreements: 1 },
     ])
   })
 

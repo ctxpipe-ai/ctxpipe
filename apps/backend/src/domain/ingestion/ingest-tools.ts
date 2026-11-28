@@ -226,7 +226,10 @@ export const ingestToolBridgeRoutes = new Hono<AppEnv>()
           checkout ? [{ ...item, checkout }] : [],
         ),
       ),
-      { signal: c.req.raw.signal },
+      {
+        threadId: `ingest:${claims.runId}:${claims.shard}`,
+        signal: c.req.raw.signal,
+      },
     )
     const response = await handleBridgeJsonRpc(core, message)
     return response === null ? c.body(null, 202) : c.json(response)

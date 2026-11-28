@@ -27,29 +27,20 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
 
 exports[`the knowledge reader seam > on: the output of both tools has the shape of the old stack 2`] = `
 {
+  "claims": [
+    {
+      "by": "string",
+      "confidence": "number",
+      "from": "string",
+      "predicate": "string",
+      "to": "string",
+    },
+  ],
   "explored": {
     "edges": "number",
     "nodes": "number",
   },
   "partial": "boolean",
-  "positions": [
-    {
-      "against": [
-        {
-          "label": "string",
-          "position": "number",
-        },
-      ],
-      "reason": {
-        "by": "string",
-        "rule": "string",
-      },
-      "refs": [
-        "string",
-      ],
-      "status": "string",
-    },
-  ],
   "results": [
     {
       "depth": "number",
@@ -65,6 +56,7 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
       "ref": "string",
       "score": "number",
       "source": "string",
+      "sourceType": "string",
       "summary": "string",
       "title": "string",
       "updatedAt": "string",
