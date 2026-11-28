@@ -1489,27 +1489,32 @@ describe("the knowledge reader seam", () => {
     expect(secondPage.claims).toEqual(content.claims)
   })
 
-  it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {
+  it("on: get_related shows each stored relation between top results with its validFrom and validTo, and filters none by time (CTX-1710)", async () => {
     await setFlag("on")
-    const claimsIn = async (from: string, to: string) =>
-      (
-        structured(
-          await relatedCall({
-            workspace: "claims",
-            seeds: ["claims/seed.md"],
-            maxDepth: 1,
-            validBetween: { from, to },
-          }),
-        ).claims as { predicate: string; by: string }[]
-      ).map(({ predicate, by }) => ({ predicate, by }))
-    // The SUPERSEDES holds from March 2026.
-    expect(
-      await claimsIn("2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"),
-    ).toEqual([{ predicate: "REPLACES", by: "reading" }])
-    expect(
-      await claimsIn("2026-02-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"),
-    ).toEqual([
-      { predicate: "SUPERSEDES", by: "edge" },
+    const claims = (
+      structured(
+        await relatedCall({
+          workspace: "claims",
+          seeds: ["claims/seed.md"],
+          maxDepth: 1,
+        }),
+      ).claims as {
+        predicate: string
+        by: string
+        validFrom?: string | null
+        validTo?: string | null
+      }[]
+    ).map(({ predicate, by, validFrom, validTo }) =>
+      by === "edge" ? { predicate, by, validFrom, validTo } : { predicate, by },
+    )
+    // The SUPERSEDES holds from March 2026. The agent judges the time.
+    expect(claims).toEqual([
+      {
+        predicate: "SUPERSEDES",
+        by: "edge",
+        validFrom: "2026-03-01T00:00:00.000Z",
+        validTo: "2100-01-01T00:00:00.000Z",
+      },
       { predicate: "REPLACES", by: "reading" },
     ])
   })
