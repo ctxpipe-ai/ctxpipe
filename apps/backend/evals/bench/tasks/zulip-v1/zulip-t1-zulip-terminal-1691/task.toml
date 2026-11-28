@@ -1,0 +1,45 @@
+schema_version = "1.4"
+artifacts = []
+
+[metadata]
+twin = "zulip-v1"
+snapshot = "2026-11-01T00:00:00Z"
+family = "T1"
+split = "dev"
+base_time = "2026-11-25T14:02:38Z"
+sources_needed = ["repo:zulip-terminal", "tracker:zulip-terminal"]
+answerable_at_t = true
+lexical_hook = false
+repos = ["zulip/zulip-terminal"]
+gold_context = [
+  "repos/zulip-terminal/tests/ui_tools/test_messages.py",
+  "repos/zulip-terminal/zulipterminal/ui_tools/messages.py",
+  "github/issues/zulip/zulip-terminal/1573.md",
+  "github/issues/zulip/zulip-terminal/986.md",
+]
+gold_urls = [
+  "https://github.com/zulip/zulip-terminal/blob/dedc62d6b96a0302b3b084b0c60abc029e6066ae/tests/ui_tools/test_messages.py",
+  "https://github.com/zulip/zulip-terminal/blob/dedc62d6b96a0302b3b084b0c60abc029e6066ae/zulipterminal/ui_tools/messages.py",
+  "https://github.com/zulip/zulip-terminal/issues/1573",
+  "https://github.com/zulip/zulip-terminal/issues/986",
+]
+grader = "file-set-f1"
+expected_pass_band = [0.3, 0.7]
+events = ["https://github.com/zulip/zulip-terminal/pull/1691"]
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "shared"
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 900.0
+# No egress in the agent phase: run.py allows only the model gateway and the
+# MCP proxy (CTX arm). The install of Claude Code runs before this phase, with network.
+network_mode = "allowlist"
+allowed_hosts = []
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"

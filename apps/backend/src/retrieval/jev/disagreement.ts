@@ -86,18 +86,6 @@ type FactThresholds = {
   scopedAt: number
 }
 
-/** The default number of pairs in one Jev call. */
-const BATCH_SIZE = 12
-
-/**
- * The number of Jev calls that `askDisagreementFacts` makes for `items`
- * items with the default batch size: one call for each batch of
- * `BATCH_SIZE` pairs.
- */
-export function disagreementCalls(items: number): number {
-  return Math.ceil((items * (items - 1)) / 2 / BATCH_SIZE)
-}
-
 /**
  * The yes/no facts that Jev gave about some items: p(yes) for each question
  * key, with the items numbered from 1 in the order of `itemIds`.
@@ -109,12 +97,12 @@ export type DisagreementFacts = {
 
 /**
  * Ask Jev the facts about the evidence `items` for the `question`. One Jev
- * call for each batch of at most `batchSize` pairs asks four yes/no facts
- * for each pair of the batch (same part of the question, disagree, and
- * "changes or replaces" in each direction), and the `scoped` fact for each
- * item that no earlier batch asked about. The batches run in parallel. With
- * fewer than two items, there is no pair and no reading, so no call goes
- * out.
+ * call for each batch of at most `batchSize` pairs (default 12) asks four
+ * yes/no facts for each pair of the batch (same part of the question,
+ * disagree, and "changes or replaces" in each direction), and the `scoped`
+ * fact for each item that no earlier batch asked about. The batches run in
+ * parallel. With fewer than two items, there is no pair and no reading, so
+ * no call goes out.
  *
  * The ids of the items must be different. A Jev failure throws its
  * `JevError`: this function has no fallback.
@@ -122,7 +110,7 @@ export type DisagreementFacts = {
 export async function askDisagreementFacts({
   question,
   items,
-  batchSize = BATCH_SIZE,
+  batchSize = 12,
   timeoutMs = 30_000,
 }: {
   question: string

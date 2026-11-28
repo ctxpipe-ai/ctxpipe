@@ -101,7 +101,7 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS deps
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@11.28.11
+RUN npm install -g pnpm@11.28.13
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
@@ -226,7 +226,7 @@ FROM runtime AS test
 ENV NODE_ENV=development
 # The S3-compatible server of the shard store tests (src/test/s3Server.ts).
 COPY --from=release-tools /test-out/versitygw /usr/local/bin/versitygw
-RUN npm install -g pnpm@11.28.11
+RUN npm install -g pnpm@11.28.13
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches

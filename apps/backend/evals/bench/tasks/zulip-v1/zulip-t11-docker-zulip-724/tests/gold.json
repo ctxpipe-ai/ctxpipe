@@ -1,0 +1,23 @@
+{
+  "task": "zulip-t11-docker-zulip-724",
+  "family": "T11",
+  "grader": "abstention",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": [],
+  "citations": [],
+  "claims": [],
+  "reference": "NO ANSWER. The release 13.3-0 happened after 2026-11-01, so its contents, changes and release notes are not available in the organization as of that date.",
+  "calibration": {
+    "gold": "NO ANSWER. The release 13.3-0 happened after 2026-11-01, so its contents, changes and release notes are not available in the organization as of that date.",
+    "dump": "after answer available changes contents happened notes organization release docker release changes release include"
+  }
+}

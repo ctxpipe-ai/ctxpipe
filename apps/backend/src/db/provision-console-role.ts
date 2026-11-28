@@ -1,4 +1,4 @@
-import type { Pool } from "pg"
+import type { Pool, PoolClient } from "pg"
 
 import { log } from "../observability/logger.js"
 import { quoteIdent } from "./provision-app-role.js"
@@ -26,6 +26,32 @@ const READ_VIEWS: Record<string, string> = {
 const ADMIN_RUN = `"workflow_name" LIKE 'admin.%'`
 
 /**
+ * Whether the migrate role has a direct membership in the console role that
+ * gives its rights or SET ROLE. The ADMIN OPTION that the creator of a role
+ * gets (PostgreSQL 16) gives neither, and stays.
+ */
+async function holdsConsoleRole(client: PoolClient): Promise<boolean> {
+  const held = await client.query<{ held: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_auth_members m
+       JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+       JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+       WHERE r.rolname = $1 AND mbr.rolname = current_user
+         AND (m.inherit_option OR m.set_option)
+     ) AS held`,
+    [CONSOLE_ROLE_NAME],
+  )
+  return held.rows[0]?.held ?? false
+}
+
+async function dropConsoleMembership(client: PoolClient): Promise<void> {
+  if (await holdsConsoleRole(client))
+    await client.query(
+      `REVOKE ${quoteIdent(CONSOLE_ROLE_NAME)} FROM CURRENT_USER`,
+    )
+}
+
+/**
  * Give the operator console its own access to the database:
  * - the role `ctxpipe_console` (LOGIN, no password; `rds_iam` where that role
  *   exists, for IAM database authentication on RDS),
@@ -36,8 +62,9 @@ const ADMIN_RUN = `"workflow_name" LIKE 'admin.%'`
  *   table owner (migrate) is not subject to the policy.
  *
  * Runs as the table owner, after the OpenWorkflow migrations. Each step is
- * idempotent. A migrate role that may not create roles skips this with a
- * warning, so a self-hosted database without a console still migrates.
+ * idempotent, and the migrate role ends with no membership in the console
+ * role. A migrate role that may not create roles skips this with a warning,
+ * so a self-hosted database without a console still migrates.
  */
 export async function provisionConsoleRole(pool: Pool): Promise<void> {
   const role = quoteIdent(CONSOLE_ROLE_NAME)
@@ -93,8 +120,13 @@ export async function provisionConsoleRole(pool: Pool): Promise<void> {
       `GRANT CONNECT ON DATABASE ${quoteIdent(database)} TO ${role}`,
     )
 
-    // A schema owner must be able to SET ROLE to its new owner. A creator
+    // To make the console role the owner of a schema, and to change the
+    // rights on that schema, a role must be able to SET ROLE to it. A creator
     // that is not a superuser (the RDS master user) gets only ADMIN OPTION.
+    // Thus the migrate role gets the membership in this transaction only. It
+    // must not keep it: on RDS the console role is a member of `rds_iam`,
+    // and a member of `rds_iam` cannot log in with a password. This also
+    // removes a membership that an earlier migrate left.
     const canSet = await client.query<{ ok: boolean }>(
       "SELECT pg_has_role(current_user, $1, 'SET') AS ok",
       [CONSOLE_ROLE_NAME],
@@ -105,6 +137,7 @@ export async function provisionConsoleRole(pool: Pool): Promise<void> {
     )
     await client.query(`ALTER SCHEMA console OWNER TO ${role}`)
     await client.query("REVOKE ALL ON SCHEMA console FROM PUBLIC")
+    await dropConsoleMembership(client)
 
     await client.query("CREATE SCHEMA IF NOT EXISTS console_read")
     await client.query("REVOKE ALL ON SCHEMA console_read FROM PUBLIC")
@@ -145,6 +178,11 @@ export async function provisionConsoleRole(pool: Pool): Promise<void> {
     if (!rls.rows[0]?.on)
       await client.query(
         "ALTER TABLE openworkflow.workflow_runs ENABLE ROW LEVEL SECURITY",
+      )
+    // REVOKE only warns when another role granted the membership.
+    if (await holdsConsoleRole(client))
+      throw new Error(
+        `the migrate role is still a member of ${CONSOLE_ROLE_NAME}; refusing to continue`,
       )
     await client.query("COMMIT")
     log.info({

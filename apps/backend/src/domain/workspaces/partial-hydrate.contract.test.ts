@@ -311,6 +311,9 @@ it(
         write: { "doc-04.md": "# Doc 4\nA new body.\n\n## Part 4\nMore.\n" },
       })
       await commit(f, { remove: ["doc-11.md"] })
+      // The commits hold no file of the bare remote of the fixture, which a
+      // `git add -A` would else walk while a background gc changes it.
+      expect(f.git("ls-files", "remote.git", "fixture-git-config")).toBe("")
       await f.resolveRevision(true)
       const partial = await hydrate(f)
       expect(partial.writes).toMatchObject({

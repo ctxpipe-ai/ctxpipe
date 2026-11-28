@@ -454,7 +454,6 @@ it("upgrades a database of the previous release and its Workspace with no manual
   expect(migrated.first).toEqual([
     { workspace_id: workspace.id, source_repository_id: WORKSPACE_REPO },
   ])
-
   // 3. The new code on the upgraded database, as the app role.
   vi.stubEnv("SANDBOX_PROVIDER", "docker")
   const opened: Array<{ head: string; base: string; body: string }> = []
@@ -790,6 +789,22 @@ it("upgrades a database of the previous release and its Workspace with no manual
             .where(eq(workspaces.id, workspace.id)),
         )
         expect(upgraded?.formatVersion).toBe(3)
+        // The org is on the knowledge plane with no flag and no operator
+        // step (CTX-1712): the hydrate queued the first projection of the
+        // Workspace. The old stack answered the MCP search above, because the
+        // Workspace was not ready on the plane.
+        const projections = await owner(
+          async (db) =>
+            (
+              await db.query(
+                `SELECT input FROM openworkflow.workflow_runs WHERE workflow_name = 'knowledge-projection' AND input->>'orgId' = $1`,
+                [ORG.id],
+              )
+            ).rows,
+        )
+        expect(projections).toContainEqual({
+          input: { orgId: ORG.id, workspaceId: workspace.id },
+        })
         // No direct write to the default branch: only the upgrade jobs.
         const jobs = await withOrgDbContext(ORG.id, (db) =>
           db

@@ -131,7 +131,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     )
     assert.equal(
       check.id.includes("#"),
-      check.family === "storybook" || check.lane === "mcp",
+      check.family === "storybook" || check.family === "eval",
       check.id,
     )
     assert.ok(existsSync(join(root, check.file)), check.file)
@@ -196,7 +196,8 @@ test("the manifest matches its schema and lists each check of each family", asyn
       check.lane === "required" ||
       check.lane === "latency" ||
       check.lane === "upgrade" ||
-      check.family === "build"
+      check.family === "build" ||
+      check.family === "eval"
     if (expensive) {
       assert.ok(check.intent, `${check.id} has no intent`)
       assert.ok(
@@ -206,7 +207,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     }
     assert.equal(
       check.stochastic ?? false,
-      check.lane === "latency",
+      check.lane === "latency" || check.family === "eval",
       check.id,
     )
     assert.equal(
@@ -393,6 +394,123 @@ it("runs in the only worker", () => {
   }
 })
 
+test("the OrgBench smoke check is selected only by the files of the MCP tool surface", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  // The only check with the path guard, and the only eval check.
+  const guarded = checks.filter((check) => check.selectBy)
+  assert.deepEqual(
+    guarded.map(({ id }) => id),
+    ["eval:bench:apps/backend/evals/bench/tiers.json#smoke"],
+  )
+  assert.deepEqual(
+    checks.filter((check) => check.family === "eval"),
+    guarded,
+  )
+  const [smoke] = guarded
+  assert.equal(smoke.selectBy, "inputs")
+  assert.equal(smoke.stochastic, true)
+  // Its inputs are exactly the code files of the tool surface, with no test
+  // and no file outside the surface, and the folder of the agent guidance.
+  const tracked = spawnSync(
+    "git",
+    [
+      "ls-files",
+      "apps/backend/src/mcp",
+      "plugins/ctxpipe",
+      "apps/backend/evals/bench",
+    ],
+    { cwd: root, encoding: "utf8" },
+  )
+    .stdout.split("\n")
+    .filter(Boolean)
+  const code = tracked.filter(
+    (path) =>
+      (path === "apps/backend/src/mcp/tools.ts" ||
+        /^apps\/backend\/src\/mcp\/(tools|framework)\//.test(path)) &&
+      !/\.(test|latency|intent)\./.test(path),
+  )
+  assert.deepEqual(smoke.inputs, [
+    ...code.toSorted(),
+    "plugins/ctxpipe/skills/**",
+  ])
+  const selects = (path) =>
+    smoke.inputs.some((input) => matchesInput(input, path))
+  // A tool descriptor (name, description, input schema) and the agent
+  // guidance select it.
+  for (const path of [
+    "apps/backend/src/mcp/tools/search-knowledge.ts",
+    "apps/backend/src/mcp/framework/tool-registry.ts",
+    "apps/backend/src/mcp/framework/schemas.ts",
+    "plugins/ctxpipe/skills/ctxpipe-context/SKILL.md",
+    // A new skill, or a deleted one.
+    "plugins/ctxpipe/skills/ctxpipe-review/SKILL.md",
+  ])
+    assert.ok(selects(path), path)
+  // No other change selects it: a test of a tool, the transport, the bench
+  // harness and its tiers, the plugin config, a backend service.
+  for (const path of [
+    "apps/backend/src/mcp/tools/get-related.test.ts",
+    "apps/backend/src/mcp/tools/get-related.latency.ts",
+    "apps/backend/src/mcp/transport.ts",
+    "apps/backend/evals/bench/run.py",
+    "apps/backend/evals/bench/tiers.json",
+    "plugins/ctxpipe/.mcp.json",
+    "apps/backend/src/server.ts",
+    "scripts/checks/evals.mjs",
+  ])
+    assert.ok(!selects(path), path)
+})
+
+test("the OrgBench smoke check reads the verdict of the smoke tier for the tool surface of the checkout", () => {
+  const home = mkdtempSync(join(tmpdir(), "smoke-home-"))
+  const run = (input) =>
+    spawnSync(
+      process.execPath,
+      [script("run.mjs"), "--logs", join(home, "logs")],
+      {
+        cwd: root,
+        encoding: "utf8",
+        input,
+        env: { ...process.env, HOME: home },
+      },
+    )
+  try {
+    const id = "eval:bench:apps/backend/evals/bench/tiers.json#smoke"
+    const surface = JSON.parse(node([script("evals.mjs"), "surface"]).stdout)
+    assert.match(surface.hash, /^[0-9a-f]{64}$/)
+    // No verdict for this surface: the check does not run, and the fix
+    // names the smoke tier.
+    const [missing] = records(run(`${id}\n`))
+    assert.equal(missing.status, "error")
+    assert.equal(missing.origin, "prerequisite")
+    assert.match(missing.message, /No smoke verdict for the tool surface/)
+    const verdicts = join(home, ".cache", "ctxpipe-bench", "smoke")
+    mkdirSync(verdicts, { recursive: true })
+    const write = (verdict) =>
+      writeFileSync(
+        join(verdicts, `${surface.hash}.json`),
+        JSON.stringify({
+          numbers: { tasks: 2 },
+          mcpUrl: "http://host.docker.internal:3660/mcp",
+          runFolder: "/runs/smoke",
+          ...verdict,
+        }),
+      )
+    write({ pass: true, reasons: [] })
+    const [passed] = records(run(`${id}\n`))
+    assert.equal(passed.status, "passed", passed.message)
+    assert.match(passed.message, /pass; tasks 2/)
+    write({ pass: false, reasons: ["2 runs with an own-service error"] })
+    const [failed] = records(run(`${id}\n`))
+    assert.equal(failed.status, "failed")
+    assert.match(failed.message, /own-service error/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test("the manifest marks exactly the platform-independent checks portable", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
@@ -435,7 +553,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     assert.ok(lanes(true).includes(lane), lane)
   assert.ok(
     lanes(true).every((lane) =>
-      /^(vitest|storybook|typecheck|lint|policy|build):/.test(lane),
+      /^(vitest|storybook|typecheck|lint|policy|build|eval):/.test(lane),
     ),
   )
   const programs = (lane) =>
@@ -991,7 +1109,11 @@ test("every check has the root toolchain files among its inputs, and a Storybook
   const { checks } = JSON.parse(result.stdout)
   assert.ok(checks.some(({ lane }) => lane === "visual"))
   assert.ok(checks.some(({ lane }) => lane === "plays"))
-  for (const { id, family, inputs } of checks) {
+  // The smoke check is selected only by the files of the tool surface: a
+  // toolchain file does not change its verdict.
+  for (const { id, family, inputs } of checks.filter(
+    (check) => !check.selectBy,
+  )) {
     for (const file of [
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
@@ -1050,10 +1172,14 @@ test("the runner inputs of a check of a selectAll lane are its runner files, the
     }).runner?.includes(path) === true
   // gate.mjs names the same files: each tracked script of scripts/checks
   // and scripts/ci is a runner file there only when runnerFiles holds it.
-  const scripts = spawnSync("git", ["ls-files", "scripts/checks", "scripts/ci"], {
-    cwd: root,
-    encoding: "utf8",
-  })
+  const scripts = spawnSync(
+    "git",
+    ["ls-files", "scripts/checks", "scripts/ci"],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  )
     .stdout.split("\n")
     .filter((file) => file.endsWith(".mjs"))
   assert.ok(scripts.length > 20)
@@ -1068,7 +1194,10 @@ test("the runner inputs of a check of a selectAll lane are its runner files, the
     for (const file of expected)
       for (const input of check.inputs)
         if (input !== file)
-          assert.ok(!matchesInput(input, file), `${check.id}: ${input} matches ${file}`)
+          assert.ok(
+            !matchesInput(input, file),
+            `${check.id}: ${input} matches ${file}`,
+          )
     const lane = check.lane
     const runnerList = JSON.stringify(check.runnerInputs ?? [])
     assert.equal(

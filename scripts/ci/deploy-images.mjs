@@ -48,6 +48,9 @@ const backend = [
   ...workspace,
   "shared",
   "apps/backend/package.json",
+  // The install needs the manifest of each workspace package the backend
+  // links.
+  "packages/visual-review/package.json",
   "apps/backend/tsconfig.json",
   "apps/backend/src",
   "apps/backend/certs/rds-global-bundle.pem",
@@ -85,6 +88,7 @@ export const images = [
       "shared",
       "apps/ui",
       "apps/backend/package.json",
+      "packages/visual-review/package.json",
       "apps/backend/src",
       // The `ui-imports` stage of the UI runs it to pick the backend files.
       "scripts/checks/ui-bundled-imports.mjs",

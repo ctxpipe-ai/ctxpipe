@@ -9,7 +9,6 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { apikeys, members, sessions, users } from "../../db/schema/auth.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import { repositories } from "../../db/schema/repositories.js"
 import {
   orgFirstWorkspaces,
@@ -303,12 +302,6 @@ it(
                   }),
                 ).toMatchObject({ lastSha: f.sha, runStatus: "completed" }),
               { timeout: 120_000, interval: 250 },
-            )
-            await withOrgDbContext(f.org.id, (db) =>
-              db
-                .update(orgFeatures)
-                .set({ value: "on" })
-                .where(eq(orgFeatures.organizationId, f.org.id)),
             )
             const { client } = mainEra
             const args = { org: f.org.slug, workspace: "knowledge" }

@@ -5,6 +5,7 @@ import {
   extractUrls,
   githubIssueOrPullDedupKey,
   issueDedupKey,
+  linearIdDedupKey,
   linearWorkspaceOfUrl,
   normalizeLinearIdentifier,
   parseConfluencePageUrl,
@@ -49,7 +50,7 @@ export type FileReferences = {
 /** One relation of a file to a reference key. */
 export type ReferenceLink = {
   key: string
-  predicate: "LINKS_TO" | "CHANGED" | "MENTIONS"
+  predicate: "LINKS_TO" | "CHANGED" | "MENTIONS" | "PART_OF" | "HAS_LABEL"
   /** 1, except for a `MENTIONS` link: the confidence of its rule. */
   confidence: number
   /** An ISO time, or null. */
@@ -90,6 +91,35 @@ function referenceKeysOfUrl(url: string): string[] {
   const github = githubIssueOrPullDedupKey(url)
   if (github) keys.push(github)
   return keys
+}
+
+/**
+ * The links of a Linear issue file to the Linear entities that its front
+ * matter names by id (ADR-033, revision 2026-11-26): `PART_OF` its parent
+ * issue, its project and its team, and `HAS_LABEL` each label of `labelIds`
+ * (all labels). The file of each entity states the same key
+ * (`mirrorUnitKeys`).
+ */
+function linearIssueIdLinks(
+  path: string,
+  attributes: Record<string, unknown>,
+): ReferenceLink[] {
+  if (!path.startsWith("linear/") || attributes.type !== "issue") return []
+  const links = (predicate: "PART_OF" | "HAS_LABEL", ids: unknown[]) =>
+    ids.flatMap((id) => {
+      const key = linearIdDedupKey(id)
+      return key
+        ? [{ key, predicate, confidence: 1, validFrom: null, text: "" }]
+        : []
+    })
+  return [
+    ...links("PART_OF", [
+      attributes.parentId,
+      attributes.projectId,
+      attributes.teamId,
+    ]),
+    ...links("HAS_LABEL", asStringArray(attributes.labelIds)),
+  ]
 }
 
 /**
@@ -350,12 +380,15 @@ function mentionLinks(input: {
 /**
  * The reference keys of one parsed file.
  * - `keys`: from the front matter of a mirror file (`notion_id`, `url`,
- *   `identifier`), from the path of a Confluence page or a Slack thread, the
- *   `CHANGED` keys of a package or a Repository file, and the keys by which
- *   an issue can mention a knowledge unit (`name:`, `op:`, `oppath:`).
+ *   `identifier`, the `id` of a Linear file), from the path of a
+ *   Confluence page or a Slack thread, the `CHANGED` keys of a package or a
+ *   Repository file, and the keys by which an issue can mention a knowledge
+ *   unit (`name:`, `op:`, `oppath:`).
  * - `links`: the provider URLs and the Linear identifiers of the body, the
- *   page id of a relative Confluence link, the `CHANGED` claims of a merged
- *   pull request, and the `MENTIONS` links of an issue (`mentionLinks`).
+ *   `PART_OF` and `HAS_LABEL` links of a Linear issue to the Linear ids of
+ *   its parent, project, team and labels (CTX-1716), the page id of a
+ *   relative Confluence link, the `CHANGED` claims of a merged pull
+ *   request, and the `MENTIONS` links of an issue (`mentionLinks`).
  *
  * A key that the file states for itself gives no link.
  */
@@ -434,6 +467,7 @@ export function fileReferences(input: {
     const key = linearIssueKey(match[0])
     if (key) linkTo(key, match[0])
   }
+  for (const link of linearIssueIdLinks(path, attributes)) add(link)
   // A relative link to a Confluence page also names the page id, so that it
   // finds the page after the page moved.
   const dir = path.split("/").slice(0, -1).join("/")

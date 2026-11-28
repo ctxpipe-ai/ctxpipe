@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import {
   type ClickHouseClient,
   ClickHouseError,
@@ -8,6 +10,7 @@ import {
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
+import { LINEAR_ID_KEY_PREFIX } from "../domain/codeIngestion/referenceResolver.js"
 
 /**
  * The per-query custom setting that holds the org of a statement. The row
@@ -491,9 +494,9 @@ export type KnowledgeStore = {
   /**
    * Each relation target that is a reference key with no document of the
    * view (`ref:<key>`), with each document that states it. Such a key has
-   * no row: it is a missing link of its own kind. A `MENTIONS` key is not
-   * in the list: a mention that names no document is not a broken link
-   * (CTX-1502).
+   * no row: it is a missing link of its own kind. A `MENTIONS` key and a
+   * Linear id key are not in the list: a mention (CTX-1502) or a Linear id
+   * (CTX-1716) that names no document is not a broken link.
    */
   listUnresolvedReferences(
     scope: KnowledgeReadScope,
@@ -544,10 +547,20 @@ export type KnowledgeStore = {
 /**
  * A ClickHouse client for `url`. The client logs to the console, so its log
  * is off: each error goes to the caller instead. The migrations use it too.
+ * When `CLICKHOUSE_PASSWORD_FILE` is set, the password of the user in `url`
+ * comes from that file: Docker Compose generates it (CTX-1712). It is read
+ * from `process.env`, not `parseEnv`, because the migrate job has no app env
+ * (`AUTH_SECRET`).
  */
 export function createClickHouseClient(url: string): ClickHouseClient {
+  const file = process.env.CLICKHOUSE_PASSWORD_FILE?.trim()
+  const withPassword = new URL(url)
+  if (file)
+    withPassword.password = encodeURIComponent(
+      readFileSync(file, "utf8").trim(),
+    )
   return createClient({
-    url,
+    url: withPassword.toString(),
     application: "ctxpipe-knowledge-store",
     log: { level: ClickHouseLogLevel.OFF },
   })
@@ -2417,7 +2430,9 @@ const resolvedTarget = (alias: string) =>
  * link. Each other one gets the confidence of {@link mentionConfidence}, so
  * a key that many files mention (the name of the whole project) is weak.
  * The mentions of one target by one file give one relation, with the
- * chunk and the confidence of the strongest.
+ * chunk and the confidence of the strongest. A Linear id key with no
+ * document is not returned either (CTX-1716): a mirror with a project scope
+ * does not write the team and the labels of its issues.
  *
  * With `direction` `out`, the query reads no in-relations (CTX-1688). The
  * claims of the search hits are out-relations only. For a hub document,
@@ -2499,7 +2514,7 @@ ${direction === "out" ? "" : inCtes}     edges AS (
        ) AS keys
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        WHERE ${isKey("o.dst_doc")}
-         AND NOT (o.predicate = 'MENTIONS' AND empty(keys.doc_key))
+         AND NOT (${optionalTarget("o")} AND empty(keys.doc_key))
 ${direction === "out" ? "" : inBranches}
      )
      SELECT DISTINCT direction, via_key AS viaKey,
@@ -2575,6 +2590,14 @@ ${direction === "out" ? "" : inBranches}
 /** The id of a (Workspace, key target) pair of a mention. */
 const keyId = (workspaceId: string, target: string) =>
   JSON.stringify([workspaceId, target])
+
+/**
+ * True for the relation `alias` when a key target of it that names no
+ * document is no relation and no broken link: a `MENTIONS` key (CTX-1502)
+ * or a Linear id key (CTX-1716).
+ */
+const optionalTarget = (alias: string) =>
+  `(${alias}.predicate = 'MENTIONS' OR startsWith(${alias}.dst_doc, '${REFERENCE_TARGET_PREFIX}${LINEAR_ID_KEY_PREFIX}'))`
 
 /**
  * The key target of the `MENTIONS` relation `alias`, else `''`. Only a
@@ -2862,9 +2885,10 @@ async function readGraph(
     ),
     // A relation to a reference key gets the documents of the key
     // (ADR-066 decision 5). Two keys of one target give one relation when
-    // all its fields are the same. A `MENTIONS` key with no document is no
-    // relation. The view shows the confidence of the rule of a mention, not
-    // the weight of `readFrontier`: the graph view does not rank.
+    // all its fields are the same. A `MENTIONS` key or a Linear id key with
+    // no document is no relation. The view shows the confidence of the rule
+    // of a mention, not the weight of `readFrontier`: the graph view does
+    // not rank.
     selectIn<RelationRecord>(
       client,
       scope,
@@ -2878,7 +2902,7 @@ async function readGraph(
        FROM (${relationsOf("relations", viewFiles)}) AS rel
        LEFT JOIN (${keyTargets("1")}) AS keys
          ON keys.workspace_id = rel.workspace_id AND keys.target = rel.dst_doc
-       WHERE NOT (rel.predicate = 'MENTIONS'
+       WHERE NOT (${optionalTarget("rel")}
          AND startsWith(rel.dst_doc, {prefix:String}) AND empty(keys.doc_key))
        ORDER BY srcDoc, srcChunk, predicate, dstDoc
        LIMIT {limit:UInt32}`,
@@ -2934,7 +2958,7 @@ const listUnresolvedReferences = (
      SELECT DISTINCT rel.src_doc AS srcDoc, rel.dst_doc AS dstDoc
      FROM (${relationsOf("relations", viewFiles)}) AS rel
      WHERE startsWith(rel.dst_doc, {prefix:String})
-       AND rel.predicate != 'MENTIONS'
+       AND NOT ${optionalTarget("rel")}
        AND (rel.workspace_id, rel.dst_doc) NOT IN (
          SELECT workspace_id, target FROM (${keyTargets("1")}))
      ORDER BY srcDoc, dstDoc`,

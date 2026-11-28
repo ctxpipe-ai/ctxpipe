@@ -1,0 +1,23 @@
+{
+  "task": "zulip-t11-zulip-40692",
+  "family": "T11",
+  "grader": "abstention",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": [],
+  "citations": [],
+  "claims": [],
+  "reference": "NO ANSWER. The Zulip 13.0, 13.1 and 13.2 releases and their changelog contents came after 2026-11-01, so the organization's state on that date does not contain what they changed.",
+  "calibration": {
+    "gold": "NO ANSWER. The Zulip 13.0, 13.1 and 13.2 releases and their changelog contents came after 2026-11-01, so the organization's state on that date does not contain what they changed.",
+    "dump": "after answer changed changelog contain contents organization releases state their zulip zulip versions released without release notes proper release release candidate changes releases include"
+  }
+}
