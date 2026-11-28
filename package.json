@@ -33,7 +33,7 @@
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
     "trust": "pnpm exec portless trust",
     "changeset": "changeset",
-    "ci:version": "changeset version",
+    "ci:version": "changeset version && node scripts/release/changelog.mjs",
     "ci:prerelease": "changeset version --snapshot \"$SNAPSHOT_TAG\" && pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish --no-git-tag --tag \"$SNAPSHOT_TAG\"",
     "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish"
   },

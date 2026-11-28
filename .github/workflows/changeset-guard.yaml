@@ -53,3 +53,16 @@ jobs:
 
       - name: Require changesets when versionable packages changed
         run: pnpm changeset status --since=origin/${{ github.event.pull_request.base.ref || 'main' }}
+
+      # A changeset that names a package starts its summary with a kind
+      # (ADR-020, item 7). The step checks only the changesets that this PR
+      # adds or changes, so that a changeset on the base branch does not stop
+      # other PRs. With --no-renames, a renamed changeset shows as added.
+      - name: Require a kind in each changeset that names a package
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          files=$(git diff --name-only --no-renames --diff-filter=AM "origin/$BASE_REF...HEAD" -- '.changeset/*.md' ':!.changeset/README.md')
+          [ -z "$files" ] && exit 0
+          # shellcheck disable=SC2086
+          node scripts/release/check-changeset-kinds.mjs $files
