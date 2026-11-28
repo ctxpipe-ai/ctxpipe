@@ -1,0 +1,39 @@
+schema_version = "1.4"
+artifacts = []
+
+[metadata]
+twin = "zulip-v1"
+snapshot = "2026-11-01T00:00:00Z"
+family = "T12"
+split = "dev"
+base_time = "2026-11-09T17:26:01Z"
+sources_needed = ["repo:zulip"]
+answerable_at_t = true
+lexical_hook = false
+repos = ["zulip/zulip"]
+gold_context = [
+  "repos/zulip/puppet/zulip/templates/postgresql/zulip.conf.template.erb",
+]
+gold_urls = [
+  "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/puppet/zulip/templates/postgresql/zulip.conf.template.erb",
+]
+grader = "file-set-f1"
+expected_pass_band = [0.5, 0.9]
+events = ["https://github.com/zulip/zulip/pull/40637"]
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "shared"
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 900.0
+# No egress in the agent phase: run.py allows only the model gateway and the
+# MCP proxy (CTX arm). The install of Claude Code runs before this phase, with network.
+network_mode = "allowlist"
+allowed_hosts = []
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"

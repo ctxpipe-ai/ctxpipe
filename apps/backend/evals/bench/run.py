@@ -67,6 +67,10 @@ def check_task(task_dir):
     agent, verifier = config.get("agent", {}), config.get("verifier", {})
     if agent.get("network_mode") != "allowlist" or agent.get("allowed_hosts") or verifier.get("network_mode") != "no-network":
         raise SystemExit(f'{task_dir.name}: task.toml must set [agent] network_mode = "allowlist", allowed_hosts = [] and [verifier] network_mode = "no-network"')
+    # The reward of a claims task (T3, T4) needs the judge panel on the host,
+    # which the recorder does not run: the verifier writes only a part of it.
+    if config.get("metadata", {}).get("grader") in ("claims", "citations-and-claims"):
+        raise SystemExit(f"{task_dir.name}: a claims task needs the judge panel (`taskset.ts judge`), which run.py does not run yet")
 
 
 def preamble(config, twin, arm):

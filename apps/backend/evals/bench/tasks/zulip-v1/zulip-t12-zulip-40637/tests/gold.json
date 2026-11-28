@@ -1,0 +1,23 @@
+{
+  "task": "zulip-t12-zulip-40637",
+  "family": "T12",
+  "grader": "file-set-f1",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": ["zulip:puppet/zulip/templates/postgresql/zulip.conf.template.erb"],
+  "citations": [],
+  "claims": [],
+  "reference": "",
+  "calibration": {
+    "gold": "The answer.\n\n## Files\n\nzulip:puppet/zulip/templates/postgresql/zulip.conf.template.erb\n",
+    "dump": "## Files\n\nzulip:puppet/zulip/templates/postgresql/zulip.conf.template.erb\nzulip:puppet/zulip/templates/cron.template.erb\nzulip:puppet/zulip/templates/logrotate/nginx.template.erb\nzulip:puppet/zulip/templates/logrotate/zulip.template.erb\nzulip:puppet/zulip/templates/memcached.conf.template.erb\nzulip:puppet/zulip/templates/nginx.conf.template.erb\nzulip:puppet/zulip/templates/nginx/healthcheck.conf.template.erb\nzulip:puppet/zulip/templates/nginx/s3-cache.template.erb\nzulip:puppet/zulip/templates/nginx/tornado-upstreams.conf.template.erb\nzulip:puppet/zulip/templates/nginx/trusted-ip.template.erb\nzulip:puppet/zulip/templates/nginx/trusted-proto.template.erb\nzulip:puppet/zulip/templates/nginx/zulip-enterprise.template.erb\nzulip:puppet/zulip/templates/postgresql/14/postgresql.conf.template.erb\nzulip:puppet/zulip/templates/supervisor/email-mirror.conf.template.erb\nzulip:puppet/zulip/templates/supervisor/go-camo.conf.erb\nzulip:puppet/zulip/templates/supervisor/smokescreen.conf.erb\nzulip:puppet/zulip/templates/supervisor/supervisord.conf.erb\nzulip:puppet/zulip/templates/supervisor/zulip-once.conf.template.erb\nzulip:puppet/zulip/templates/supervisor/zulip.conf.template.erb\nzulip:puppet/zulip/templates/uwsgi.ini.template.erb\nzulip:puppet/zulip/templates/zulip-redis.template.erb\n"
+  }
+}

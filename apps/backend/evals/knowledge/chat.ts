@@ -1,10 +1,15 @@
+import { execFileSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
+
 import { openRouterModelId } from "@ctxpipe/visual-review"
 import { z } from "zod"
 
 import { gatewayRoutingError } from "../../src/observability/gatewayError.js"
 import {
+  allowlistSettingsProblem,
   DEFAULT_OPENROUTER_BASE,
   openRouterProvider,
+  providerAllowlist,
 } from "../../src/retrieval/services/openRouterProvider.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 
@@ -169,6 +174,48 @@ export function modelProviderProblem(
     env.MODEL_PROVIDER_API_KEY
     ? null
     : "The eval tools need MODEL_PROVIDER openrouter or openai-like, and MODEL_PROVIDER_API_KEY (the OpenRouter key)."
+}
+
+/**
+ * Why an eval command cannot send a model call with these settings, or
+ * undefined when it can. Each eval model call goes only to the providers of
+ * the allowlist (ADR-070): `factory eval` gives the list of production. A
+ * command that sends a model call stops without it, so that no run can
+ * forget it.
+ */
+export function allowlistProblem(): string | undefined {
+  try {
+    return providerAllowlist()
+      ? allowlistSettingsProblem({
+          MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+          MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+          MODEL_PROVIDER_ALLOWLIST: process.env.MODEL_PROVIDER_ALLOWLIST,
+        })
+      : "Set MODEL_PROVIDER_ALLOWLIST: each eval model call goes only to the providers of the allowlist (factory eval gives the list of production)."
+  } catch (error) {
+    return (error as Error).message
+  }
+}
+
+/**
+ * Build the file converter, which holds the secret scrub of each model call
+ * (ADR-072): the export of `factory eval` has no build of it.
+ */
+export function buildConverter() {
+  execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(
+        new URL(
+          "../../../../scripts/checks/prerequisites.mjs",
+          import.meta.url,
+        ),
+      ),
+      "converter",
+    ],
+    // Its result line (and the fix of a failure) goes to stderr.
+    { stdio: ["ignore", 2, "inherit"] },
+  )
 }
 
 /**

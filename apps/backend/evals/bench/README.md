@@ -19,6 +19,10 @@ This folder holds OrgBench, the org-scale benchmark for context engines ([ADR-07
 | `tiers.py` | The tasks of a tier, the verdict of the smoke tier, and `pick-smoke` (the smoke list from a baseline). |
 | `mint-key.ts` | Makes an org API key on a local stack (a candidate run, plan §5.4). |
 | `requirements.in`, `requirements.txt` | The pinned Harbor release, and its lock with hashes (`uv pip compile --generate-hashes requirements.in`). |
+| `tasks/zulip-v1/` | The task set of the Zulip twin (CTX-1664): one Harbor task folder for each task, and the manifest `dataset.json`. See [The Zulip task set](#the-zulip-task-set). |
+| `mine_zulip.py` | The miner of the candidate tasks of the Zulip twin. |
+| `taskset.ts` | The steps from the candidates to the task folders: draft, label, probe, build, and the judge of the claims rubric. |
+| `grade.py` | The verifier of a twin task. The build copies it into each task. |
 
 ## The task format
 
@@ -33,6 +37,74 @@ A task is a Harbor task folder: `instruction.md` (the question), `environment/Do
 | `gold_context` | The gold files, as paths in the B1+ corpus (`repos/<name>/<path>`, `github/issues/…`, `github/pulls/…`, `chat/…`), each with an optional line range (`#L10-80`, or one line `#L42`). The ORACLE arm gets these files in its prompt. `run.py` refuses a path that is not in the corpus, also through a link. The recorder also uses them for the failure class: a run "saw" a gold file when a tool call named it or returned it. |
 
 `task.toml` must set `[agent] network_mode = "allowlist"`, `allowed_hosts = []` and `[verifier] network_mode = "no-network"`; `run.py` refuses another task. The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
+
+## The Zulip task set
+
+`tasks/zulip-v1/` holds the answer-only tasks of phase 1 on the Zulip twin (CTX-1664, [ADR-075](../../../../.ai/memory/decisions/ADR-075-orgbench-org-scale-agent-benchmark.md) decision 4, plan §4.3). The twin is the frozen context repo `ctxpipe-ai/orgbench-zulip-context` at T = 2026-11-01T00:00:00Z (`../knowledge/fixtures/orgbench-zulip-v1.plan.json`). The `[metadata]` of each `task.toml` holds the keys of [The task format](#the-task-format) and the other fields of the plan: `twin`, `snapshot`, `split`, `base_time`, `sources_needed`, `answerable_at_t`, `gold_urls` (the source URL of each `gold_context` path), `grader`, `expected_pass_band` (a prior of each family until the first baseline measures it) and `events` (the post-T events that the task comes from). `dataset.json` is the manifest: the models, the spend, the counts, the drops of each filter, and an entry for each task with its calibration triad and probe score. A sealed task has only an opaque id (a hash of its candidate id with a secret salt), its family and a hash of its files. The same salt orders the splits, so the public candidates do not name the sealed tasks.
+
+### The first set (2026-11-28)
+
+The set has 9 tasks: 8 in this folder (5 `dev`, 3 `holdout`) and 1 `sealed`. The plan asked for about 60. With the rules of the brief (a post-T task text, two sources, the probe), the Zulip data of the window (T, 2026-11-28) supports far fewer:
+
+| Family | Plan | Tasks | dev / holdout / sealed | What limits it |
+| --- | --- | --- | --- | --- |
+| T1 | 12 | 4 | 2 / 1 / 1 | The probe: Sonnet named a gold file of 18 of the 22 labeled fixes from the task text alone, because Zulip names its files after its features. Most fixes of the window answer a pre-T issue, so their task text is the post-T pull request, and the drafter refused 16 of those as fix descriptions. |
+| T3 | 10 | 0 | none | Two sources: 15 of the 18 drafts point at one pre-T record and need no other source. The one task that passed scored 0 on the ORACLE arm on Haiku and on Sonnet (the agent wrote `NO ANSWER` with the gold context in its prompt), so the build drops it (`oracle`, ADR-075 decision 8). |
+| T4 | 10 | 0 | none | The chat after T in the 7 channels has 126 topics; few have an answer in pre-T material, and none in two sources that the panel accepted. |
+| T8a | 8 | 0 | none | The window holds 6 upstream changes with a post-T follow-up in another repository. Two have a pre-T question, the probe named the exact set of two, the panel removed one, and the drafter refused one. |
+| T10a | 6 | 0 | none | The filter design, not the data: the gold of a review prediction is a guideline page of the `zulip` repository, so its gold context is one source by construction, and the two-source rule removes each candidate. A later version can add the pre-T evidence of the reviewed change (its files at T, or its linked issue). |
+| T11 | 8 | 3 | 2 / 1 / 0 | A review removed 11 that the panel kept (`review`): their text, the code or the material at T answers them, or they have no subject. Most of the others are chat topics that ask for a later decision of the maintainers, so the quota is 3: the questions about releases and events after T. |
+| T12 | 6 | 2 | 1 / 1 / 0 | The probe (9 out) and the panel (4 out). |
+
+The drops of each filter, over all families: the drafter refused 38 candidates (`draft`), 34 did not span two sources (`two-sources`), the panel removed 14 (`panel`), the probe removed 29 (`probe`), the ORACLE runs removed 1 (`oracle`), a review removed 11 (`review`), the triad removed none, and 7 were over the quota (`quota`). The model calls of the steps cost $9.50: $4.04 to draft, $4.56 to label, $0.79 to probe and $0.11 for the builds. The ORACLE runs that proved the format cost $0.18 more. 2 of the 8 public tasks have `lexical_hook = true`. The list of each drop stays with the sealed tasks (`dropped.json`), because with the public candidates of the miner it would name them.
+
+### The families
+
+| Family | The post-T event | The gold | Grader |
+| --- | --- | --- | --- |
+| T1 locate | A fix (a pull request) of a problem, with a link to a pre-T issue, pull request or chat topic. The task text is the closed issue when it was opened after T, else the pull request when it was opened after T | Each file of the fix that exists at T, tests too (not the generated files) | `file-set-f1` |
+| T3 why | A pull request, an issue or a chat topic that points at an earlier decision | The decision record (the drafter picks it from the linked and the nearest pre-T documents) and its claims | `citations-and-claims` |
+| T4 chat-answered | A chat topic after T with an answer | The pre-T documents that hold the answer, and its claims | `claims` |
+| T8a impact | An upstream change after T, read by hand (`IMPACT_SEEDS` in `mine_zulip.py`) | Each repository that a post-T follow-up changed or named | `repo-set-f1` |
+| T10a review prediction | A pull request after T whose reviewers cited a contributor guideline | Each cited page that exists at T and is no template | `rule-set-f1` |
+| T11 no answer | A question that only post-T facts answer (a release after T) | None: the agent must say `NO ANSWER` | `abstention` |
+| T12 control | A fix with no link to other org material | Each file of the fix that exists at T, tests too (not the generated files) | `file-set-f1` |
+
+The text of a task is what a person wrote after T, in their words. The drafter removes only the direct leaks: the numbers, the links, the titles of the events, the gold paths, repositories, pages and records, and the people. There is no BM25 leak lint (ADR-075 decision 4). `lexicalHook` is `yes` when the task text holds a distinctive term of the gold (a file name with `_` or `-`, or of 10 letters or more; a repository other than `zulip`; a guideline page), or when a keyword search (BM25) of the task text puts a gold document of the corpus in its top 5.
+
+Each instruction ends with the answer format of its grader: a section `## Files`, `## Repositories` or `## Rules`, or prose with citations. Each format also tells the agent to write `NO ANSWER` when the sources do not hold the answer, so that a T11 task looks like the others.
+
+### How the tasks are made
+
+1. `mine_zulip.py` reads the post-T events (the GitHub API through `gh`, and the chat after T from `corpus chat` of `../knowledge`, with the same pseudonyms). It writes the candidates: the text of each event with the logins and mentions replaced, the gold that code finds, and the pre-T evidence with its text. Its output stays local, because it holds the raw text.
+2. `taskset.ts draft`: the drafter (`anthropic/claude-sonnet-5.5`) writes each task from its candidate. It takes each family up to twice its quota (four times for T12), in the order of the hash of the id (a merged fix first), and up to 40 chat topics with three messages or more; for a chat topic it picks T3, T4, T11 or none. The miner gives the gold context of T1, T8a and T10a, so their two-source filter (step 3) runs before the draft, with no model call. Code then checks the draft for leaks and people. A draft with a problem gets one more try with the problems, and is dropped after that (`leak`). The drafter can also refuse a candidate (`draft`).
+3. `taskset.ts label`: first the two-source filter (ADR-075 decision 5): the gold context must span two source systems (a repository, the tracker, the chat) or two repositories. T12 and T11 are exempt: T12 is the control of one repository, and T11 has no gold. Then the judge panel (Sonnet 5.5, GPT-6.1-Terra, Gemini 3.8 Flash; never Jev, never one family alone) votes on each task: the gold is the answer, the task is answerable at T (for T3 and T4: the gold context answers each part of the task; for T11: neither its three nearest documents nor the code at T answers it), the text leaks nothing, and it names no person. A task stays when the majority says yes to each (`panel`).
+4. `taskset.ts probe`: the memorization probe. Sonnet 5.5, the model of phase 1, answers from the task text alone. The task is out when the probe names its answer (`probe`): a gold file (T1, T12), the exact gold set (T8a, T10a), a gold record or half of the claims (T3, T4).
+5. `taskset.ts build`: first it drops each task of `--exclude` (`zulip-v1-excluded.json`): a task that an ORACLE run scored 0 (`oracle`), or a task that a review found broken in a way the panel did not see (`review`), each with its reason. Then the calibration triad of each grader (ADR-075 decision 8): an empty answer scores 0.1 or less, the gold answer 0.9 or more, and a keyword dump 0.5 or less (`triad`). The dump lists the gold with its neighbors: the other files of the gold folders, every repository, every contributor guideline page, or the keywords of the claims with the gold and nearest citations. Then the quota of each family (`quota`), and the splits: in each family, by the hash of the id, 15% `sealed`, 25% `holdout` and the rest `dev`. The build writes the dev and holdout tasks to `tasks/zulip-v1/`. It writes the sealed tasks to `--sealed`, out of this public repository (ADR-075 decision 12); the manifest holds only their opaque id, family and hash, and the list of the drops goes to `--sealed` too.
+
+Each model call goes through the recorder of `../knowledge` (`ModelCalls`, the spend cap of the step), with the secret scrub of ADR-072 and the provider block of ADR-070, and stops without `MODEL_PROVIDER_ALLOWLIST`:
+
+```sh
+python3 evals/bench/mine_zulip.py --context CLONE --chat CHAT/zulip --cache CACHE --out candidates.json
+factory eval knowledge:orgbench --repo CHECKOUT --out draft.json --max-cost 3 -- draft --candidates candidates.json --context CLONE
+factory eval knowledge:orgbench --repo CHECKOUT --out labeled.json --max-cost 3 -- label --draft draft.json --context CLONE
+factory eval knowledge:orgbench --repo CHECKOUT --out probed.json --max-cost 2 -- probe --labeled labeled.json
+factory eval knowledge:orgbench --repo CHECKOUT --out TASKS --max-cost 2 -- build --probed probed.json --context CLONE --sealed SEALED --exclude evals/bench/zulip-v1-excluded.json
+```
+
+`factory eval` runs the harness of `origin/main`, and its `--out` must be out of the checkout: copy `TASKS` to `tasks/zulip-v1/` after the build. The set of 2026-11-28 ran the same steps with `bun --no-env-file evals/knowledge/cli.ts orgbench …` from the branch, with the same key, `MODEL_PROVIDER=openrouter` and the allowlist of production, because the steps were not on `main` yet. It ran in batches: after the first review, a new mine applied the post-T rule of the task text, and only the candidates whose text, gold or evidence changed were drafted again. The T3, T4 and T11 tasks were labeled again with the stricter panel questions, and each other candidate kept its earlier outcome of each step. The build got the folder siblings of the last mine (only the triad reads them).
+
+The recorder reserves $0.25 for each chat call before it sends it, so a cap must be at least $0.25 above the spend that it allows.
+
+### Grading a run
+
+`grade.py` runs in the container as the verifier. The set graders are machine grading: the F1 of the named files, repositories or guideline pages against the gold. A file matches when its path is the gold path and its repository is the gold repository or is not named; the grader reads the forms `repo:path`, `/app/org/repos/<repo>/<path>` and a GitHub blob URL. The claims rubric of T3 and T4 needs the panel, and the verifier has no network. Thus for those graders the verifier writes the part that code scores (the citation score of T3), the answer and `needsPanel: true` to `facts.json`, and `judge` scores the answer on the host. The set of 2026-11-28 has no T3 or T4 task, so the recorder does not run the judge yet, and `run.py` refuses a claims task. To judge one answer:
+
+```sh
+factory eval knowledge:orgbench --repo CHECKOUT --out judged.json --max-cost 0.5 -- judge --task tasks/zulip-v1/ID --answer ANSWER.md
+```
+
+Before the panel judges, `judge` changes the citations of each arm to source URLs (a corpus path to its GitHub or chat URL, a mounted repository file to its GitHub URL at the SHA of T) and removes the names of the tools and the layout of each arm. Each panel model gives each claim `full`, `partial` or `none`; the score of a claim is the median, and the rubric score is the mean. The reward of T3 is half its citation score and half its rubric score. The citation score is the recall of the gold records, scaled down when the answer cites more than two other records.
 
 ## The arms
 

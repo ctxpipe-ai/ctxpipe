@@ -1,0 +1,50 @@
+{
+  "zulip-t3-zulip-40804": {
+    "filter": "oracle",
+    "reason": "The ORACLE arm scored 0 on Haiku and on Sonnet (2026-11-28): with the gold context in its prompt, the agent wrote NO ANSWER."
+  },
+  "zulip-t11-docker-zulip-721": {
+    "filter": "review",
+    "reason": "The task text says that the release tag was missing, and then asks whether the release was tagged (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-9-2554396": {
+    "filter": "review",
+    "reason": "The email templates at T show where the button links, so the code at T answers the task (spec review, 2026-11-28)."
+  },
+  "zulip-t11-zulip-desktop-1563": {
+    "filter": "review",
+    "reason": "The task text lists the changes of the release that it asks about, so the text answers the task (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-378-2559499": {
+    "filter": "review",
+    "reason": "The task asks for a recommendation that the naming conventions at T and the task text can support, not for a later decision (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-378-2555551": {
+    "filter": "review",
+    "reason": "The task asks which behavior to build, which the material at T can support, not what was decided later (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-9-2550062": {
+    "filter": "review",
+    "reason": "The task names no thread, pull request or fix, so an agent abstains because the question has no subject, not because the answer is after T (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-6-2553970": {
+    "filter": "review",
+    "reason": "The task asks about a change that it does not show, so it has no subject that the sources can hold (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-9-2554246": {
+    "filter": "review",
+    "reason": "The task asks for permission to send a fix, not for a fact, so no answer is right or wrong (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-9-2548608": {
+    "filter": "review",
+    "reason": "The task does not say which change or fix it asks about, so it has no subject that the sources can hold (spec review, 2026-11-28)."
+  },
+  "zulip-t11-zulip-terminal-1694": {
+    "filter": "review",
+    "reason": "The code merged before T since the last release gives most of the changes of the release that the task asks about (spec review, 2026-11-28)."
+  },
+  "zulip-chat-chat-378-2548830": {
+    "filter": "review",
+    "reason": "The endpoint conventions at T can answer the GET or POST question, so the task may not need facts after T (spec review, 2026-11-28)."
+  }
+}

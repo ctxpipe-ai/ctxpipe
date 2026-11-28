@@ -1,0 +1,23 @@
+{
+  "task": "zulip-t12-zulip-40725",
+  "family": "T12",
+  "grader": "file-set-f1",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": ["zulip:docs/THIRDPARTY", "zulip:web/icons/reset.svg"],
+  "citations": [],
+  "claims": [],
+  "reference": "",
+  "calibration": {
+    "gold": "The answer.\n\n## Files\n\nzulip:docs/THIRDPARTY\nzulip:web/icons/reset.svg\n",
+    "dump": "## Files\n\nzulip:docs/THIRDPARTY\nzulip:web/icons/reset.svg\nzulip:docs/.gitignore\nzulip:docs/Makefile\nzulip:docs/README.md\nzulip:docs/__init__.py\nzulip:docs/_static/theme_overrides.css\nzulip:docs/_templates/layout.html\nzulip:docs/code-of-conduct.md\nzulip:docs/conf.py\nzulip:docs/contributing/asking-great-questions.md\nzulip:docs/contributing/code-reviewing.md\nzulip:docs/contributing/code-style.md\nzulip:docs/contributing/commit-discipline.md\nzulip:docs/contributing/continuing-unfinished-work.md\nzulip:docs/contributing/contributing.md\nzulip:docs/contributing/counting-contributions.md\nzulip:docs/contributing/design-discussions.md\nzulip:docs/contributing/how-we-communicate.md\nzulip:docs/contributing/index.md\nzulip:docs/contributing/licensing.md\nzulip:docs/contributing/presenting-visual-changes.md\n"
+  }
+}

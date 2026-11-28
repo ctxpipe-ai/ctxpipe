@@ -1,0 +1,43 @@
+schema_version = "1.4"
+artifacts = []
+
+[metadata]
+twin = "zulip-v1"
+snapshot = "2026-11-01T00:00:00Z"
+family = "T1"
+split = "dev"
+base_time = "2026-11-23T22:58:59Z"
+sources_needed = ["repo:zulip", "tracker:zulip"]
+answerable_at_t = true
+lexical_hook = true
+repos = ["zulip/zulip"]
+gold_context = [
+  "repos/zulip/web/src/settings_components.ts",
+  "repos/zulip/web/tests/settings_profile_fields.test.cjs",
+  "github/issues/zulip/zulip/29879.md",
+]
+gold_urls = [
+  "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/src/settings_components.ts",
+  "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/tests/settings_profile_fields.test.cjs",
+  "https://github.com/zulip/zulip/issues/29879",
+]
+grader = "file-set-f1"
+expected_pass_band = [0.3, 0.7]
+events = ["https://github.com/zulip/zulip/pull/40790"]
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "shared"
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 900.0
+# No egress in the agent phase: run.py allows only the model gateway and the
+# MCP proxy (CTX arm). The install of Claude Code runs before this phase, with network.
+network_mode = "allowlist"
+allowed_hosts = []
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"

@@ -1,0 +1,23 @@
+{
+  "task": "zulip-chat-chat-9-2556099",
+  "family": "T11",
+  "grader": "abstention",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": [],
+  "citations": [],
+  "claims": [],
+  "reference": "NO ANSWER. The evidence from before 2026-11-01 contains nothing about the NGINX2Root vulnerabilities, the nginx fix released on 2026-11-18, or the Zulip 13.3 release that picked up the patched nginx. Only those later facts answer the question.",
+  "calibration": {
+    "gold": "NO ANSWER. The evidence from before 2026-11-01 contains nothing about the NGINX2Root vulnerabilities, the nginx fix released on 2026-11-18, or the Zulip 13.3 release that picked up the patched nginx. Only those later facts answer the question.",
+    "dump": "about answer before contains evidence facts later nginx nginx2root nothing patched picked question release released those vulnerabilities zulip zulip using nginx guess affected nginx vulnerabilities zulip affected mitigation fixed release available"
+  }
+}
