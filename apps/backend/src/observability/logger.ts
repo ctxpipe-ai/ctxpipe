@@ -52,7 +52,7 @@ const evlogRedact: RedactConfig = {
 }
 
 /**
- * evlog 2.14.1 reads `OTEL_EXPORTER_OTLP_ENDPOINT` and appends `/v1/logs`.
+ * evlog reads `OTEL_EXPORTER_OTLP_ENDPOINT` and appends `/v1/logs`.
  * This service sets `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (often already suffixed).
  */
 function otlpLogsEndpoint(): string | undefined {

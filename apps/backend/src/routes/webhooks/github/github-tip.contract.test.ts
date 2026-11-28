@@ -21,8 +21,10 @@ import { workspaceSources } from "../../../db/schema/workspace_sources.js"
 import { workspaces } from "../../../db/schema/workspaces.js"
 import { generateObjectId } from "../../../lib/id.js"
 import { getWorkspaceById } from "../../../models/workspaces.js"
-import { createLogger } from "../../../observability/logger.js"
-import { contextStorage } from "../../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  createTestLogger,
+} from "../../../test/hono-test-logger.js"
 import { insertLinkedRepositoryRows } from "../../../test/workspace-links-fixture.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
@@ -109,7 +111,7 @@ async function withPushFixture(
     app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", createLogger({ proof: "webhook" }))
+      c.set("log", createTestLogger({ proof: "webhook" }))
       await next()
     })
     registerGithubWebhookRoute(app)

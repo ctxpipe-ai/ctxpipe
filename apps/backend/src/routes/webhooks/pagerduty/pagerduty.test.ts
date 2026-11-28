@@ -1,13 +1,13 @@
 import { createHmac } from "node:crypto"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import { registerPagerdutyWebhookRoute } from "./pagerduty.js"
 
 const mocks = vi.hoisted(() => ({
@@ -45,7 +45,7 @@ function createTestApp() {
   app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   registerPagerdutyWebhookRoute(app)

@@ -4,7 +4,6 @@ import { join } from "node:path"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
-import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
@@ -21,6 +20,7 @@ import {
   patchForgeConnectionTypedConfig,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import { seedSourcesOrg } from "../../../test/workspace-sources-fixture.js"
 
 const hostedAppAri =
@@ -106,7 +106,7 @@ function createApp(confluenceForgeInstallUrl?: string) {
   app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   routes.registerAtlassianWebhookRoute(app)

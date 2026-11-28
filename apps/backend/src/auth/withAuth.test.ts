@@ -1,4 +1,3 @@
-import type { RequestLogger } from "evlog"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -195,7 +194,7 @@ function createBaseApp(): Hono<AppEnv> {
       error() {},
       warn: warnMock,
       info() {},
-    } as unknown as RequestLogger)
+    } as unknown as AppEnv["Variables"]["log"])
     c.set("env", {
       AUTH_BASE_URL: "https://backend.example.com",
       AUTH_ISSUER: "https://auth.example.com",

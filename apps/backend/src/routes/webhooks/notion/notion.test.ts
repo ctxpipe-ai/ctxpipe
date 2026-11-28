@@ -1,12 +1,12 @@
 import { createHmac } from "node:crypto"
 
-import { createLogger } from "evlog"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AppEnv } from "../../../app/env.js"
 import {
   contextStorage,
+  createTestLogger,
   withTestRequestLogger,
 } from "../../../test/hono-test-logger.js"
 
@@ -85,7 +85,7 @@ function testApp(
       NOTION_CLIENT_SECRET: options.clientSecret ?? notionClientSecret,
       NOTION_WEBHOOK_SECRET: options.webhookSecret,
     } as AppEnv["Variables"]["env"])
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   registerNotionWebhookRoute(app as never)
