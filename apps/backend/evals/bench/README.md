@@ -38,7 +38,7 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 | Arm | Workspace | MCP |
 | --- | --- | --- |
 | `b1plus` | The B1+ corpus, mounted read-only at `/app/org`: `repos/<name>` (each repository at its pinned SHA, with no git history), `github/issues/` and `github/pulls/` (the Markdown of the frozen context repo), and `chat/` (the chat threads as Markdown). | None. |
-| `ctx` | Empty. | The ctxpipe MCP of production (decision D4) at `http://ctxpipe-mcp-proxy/mcp`. |
+| `ctx` | Empty. | The ctxpipe MCP of production (decision D4) at `http://ctxpipe-mcp-proxy/mcp`. The bench Workspace serves the context repo after the ctxpipe ingest, so its SHA is not the SHA of the B1+ corpus. Each CTX record names the SHA that it read (`served`), and the report shows it for each run. |
 | `oracle` | Empty. The `gold_context` files of the task follow the preamble. One trial. | None. |
 
 `corpus.py` builds the B1+ corpus from the plan of the twin (`../knowledge/fixtures/orgbench-zulip-v1.plan.json`) and the frozen context repo (`ctxpipe-ai/orgbench-zulip-context` at the SHA in `arms.json`). It reads the context repo through the `gh` login. It fetches each tree one time into `~/.cache/ctxpipe-bench/corpus/trees/`, and builds each corpus size as a view of hard links in `~/.cache/ctxpipe-bench/corpus/views/`.
@@ -120,7 +120,7 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 
 ## The record of a run
 
-`runs.jsonl` holds one record for each run: the score (and `rawScore`, the score of the grader before an own-service error), the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the gateway total, the turns, the agent time and the wall time, the tool calls of the transcript, the MCP error results (`mcpErrors`: the tool error code, or `schema` for bad arguments that the MCP SDK refused), the argument errors, the own-service errors, the gold files that the run saw, the proxy counts, the server spans (calls and error codes for each tool, ClickHouse spans, Jev calls, model cost), the D5 proof (`valid`, `invalidReasons`), and the error class (`infra`, `own-service` or none). The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
+`runs.jsonl` holds one record for each run: the score (and `rawScore`, the score of the grader before an own-service error), the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the gateway total, the turns, the agent time and the wall time, the tool calls of the transcript, the MCP error results (`mcpErrors`: the tool error code, or `schema` for bad arguments that the MCP SDK refused), the argument errors, the own-service errors, the gold files that the run saw, the snapshot that a CTX run read (`served`: the `branch@sha` of each hit and file in the MCP results, for example `main@<sha>` for the Workspace and `<sha>@<sha>` for a pinned repository), the proxy counts, the server spans (calls and error codes for each tool, ClickHouse spans, Jev calls, model cost), the D5 proof (`valid`, `invalidReasons`), and the error class (`infra`, `own-service` or none). The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
 
 ## The report
 
@@ -128,5 +128,5 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 
 - for each arm: the mean continuous score, pass@1, pass^k (k is the smallest count of trials of a task), $/task, $/success, the mean tokens, the wall time and the turns;
 - the paired delta of each arm against B1+: the mean over the tasks of the difference of the mean trial scores, with a 95% bootstrap interval over the tasks, and the strata by `family`, `lexical_hook` and repository count;
-- the process of the CTX arm: the MCP calls and their share of the tool calls, the tasks with no MCP call, the argument errors and their rate, the runs with an own-service error, the server tools, the Jev calls and the D5 counts;
+- the process of the CTX arm: the MCP calls and their share of the tool calls, the tasks with no MCP call, the argument errors and their rate, the runs with an own-service error, the server tools, the Jev calls, the D5 counts, and the served snapshots (two SHAs of the Workspace branch mean that the snapshot changed during the runs);
 - the failure class of each failed run: own-service error, infra (an infrastructure error that did not run again), tool not used (a CTX run with no MCP call), reasoning with gold seen (the run saw a gold file, or the arm is ORACLE), bad args (an argument error and no gold file seen), or retrieval miss.

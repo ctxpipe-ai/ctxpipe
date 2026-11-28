@@ -19,6 +19,10 @@ import tomllib
 import urllib.request
 from datetime import datetime, timezone
 
+# The provenance of a hit or a file of the MCP tools: `served: {branch, sha}`
+# as JSON, or the same keys as indented text.
+SERVED = re.compile(r'served"?\s*:\s*\{?\s*"?branch"?\s*:\s*"?([^\s",}]+)"?\s*,?\s*"?sha"?\s*:\s*"?([0-9a-f]{40})')
+
 # The MCP tool error codes (apps/backend/src/mcp/framework/tool-errors.ts)
 # that are errors of the arm's own service, not of the agent (ADR-075 decision 7).
 OWN_SERVICE_CODES = {"internal", "too_many_requests", "judge_unavailable", "workspace_not_ready"}
@@ -138,24 +142,27 @@ def server_spans(conversation_id, *, env, org_slug, started, ended, expected_cal
     }
 
 
+def result_text(block):
+    content = block.get("content")
+    return content if isinstance(content, str) else " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
+
+
 def result_code(block):
     """The error code of an MCP error result: the code of a tool error, or `schema` for bad arguments."""
-    content = block.get("content")
-    text = content if isinstance(content, str) else " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
-    match = re.search(r'"code"\s*:\s*"([a-z_]+)"', text)
-    if match:
-        return match.group(1)
+    text = result_text(block)
     # The MCP SDK refuses bad arguments before the tool runs: no span, only this text.
-    if "-32602" in text or "Invalid arguments" in text or "validation" in text.lower():
+    if "-32602" in text or "Invalid arguments" in text:
         return "schema"
-    return "other"
+    # A tool error, as JSON or as indented text (`code: unknown_ref`).
+    match = re.search(r'"?\bcode"?\s*:\s*"?([a-z_]+)', text)
+    return match.group(1) if match else "other"
 
 
 def transcript(stream_path):
-    """The result event, the tool calls, the MCP error codes and the tool text of a Claude Code transcript."""
-    result, tools, names, errors, text = {}, collections.Counter(), {}, [], []
+    """The result event, the tool calls, the MCP error codes, the served snapshots and the tool text of a Claude Code transcript."""
+    result, tools, names, errors, text, served = {}, collections.Counter(), {}, [], [], collections.Counter()
     if not stream_path.is_file():
-        return result, tools, errors, ""
+        return result, tools, errors, served, ""
     for line in stream_path.read_text(errors="replace").splitlines():
         if not line.startswith("{"):
             continue
@@ -173,9 +180,11 @@ def transcript(stream_path):
                 text.append(json.dumps(block.get("input")))
             if block.get("type") == "tool_result":
                 text.append(json.dumps(block.get("content")))
-                if block.get("is_error") and names.get(block.get("tool_use_id"), "").startswith("mcp__"):
-                    errors.append(result_code(block))
-    return result, tools, errors, "\n".join(text)
+                if names.get(block.get("tool_use_id"), "").startswith("mcp__"):
+                    if block.get("is_error"):
+                        errors.append(result_code(block))
+                    served.update(f"{branch}@{sha}" for branch, sha in SERVED.findall(result_text(block)))
+    return result, tools, errors, served, "\n".join(text)
 
 
 def gold_seen(task_dir, tool_text):
@@ -197,7 +206,7 @@ def read_json(path):
 def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd, mcp, started, ended, telemetry_env, org_slug, task_dir):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial_dir = trials[0].parent if trials else out / "jobs" / run_id
-    result, tools, mcp_errors, tool_text = transcript(trial_dir / "agent" / "claude-code.txt")
+    result, tools, mcp_errors, served, tool_text = transcript(trial_dir / "agent" / "claude-code.txt")
     usage = result.get("usage", {})
     reward_path = trial_dir / "verifier" / "reward.txt"
     exception = (read_json(trial_dir / "result.json").get("exception_info") or {}).get("exception_type")
@@ -276,6 +285,9 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
         "ownServiceErrors": own_service,
         "goldSeen": seen,
         "goldCount": gold_count,
+        # The snapshot that the CTX arm read: `branch@sha` of each served hit
+        # or file (the Workspace branch, or the pinned commit of a repository).
+        "served": dict(served),
         "proxy": proxy,
         "server": server,
         "valid": not invalid,

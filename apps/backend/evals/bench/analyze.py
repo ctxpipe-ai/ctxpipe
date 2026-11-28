@@ -99,8 +99,15 @@ def arm_summary(runs, pass_at, mcp_arm):
             "jevCalls": sum(r["server"].get("jevCalls", 0) for r in runs),
             "falkorSpans": sum(r["server"].get("falkorSpans", 0) for r in runs),
             "planeFallbackLogs": sum(r["server"].get("planeFallbackLogs", 0) for r in runs),
+            # Two SHAs of one branch: the snapshot moved during the runs.
+            "served": dict(sum((collections.Counter(r.get("served", {})) for r in runs), collections.Counter())),
         }
     return summary
+
+
+def workspace_shas(run):
+    """The SHAs of the Workspace branch that a CTX run read (a pinned repository has its SHA as its branch)."""
+    return sorted({ref.split("@")[1] for ref in run.get("served", {}) if ref.split("@")[0] != ref.split("@")[1]})
 
 
 def paired(runs_by_arm, arm, tasks_meta):
@@ -151,6 +158,8 @@ def analyze(folder, pass_at):
     report = {
         "twin": invocation["twin"],
         "mcpUrl": invocation["mcpUrl"],
+        # The snapshot of the baseline arms; each CTX run names the snapshot it read (`served`).
+        "contextSha": config["twins"][invocation["twin"]]["context"]["sha"],
         "passAt": pass_at,
         "spendUsd": round(sum(run_cost(r) for r in records if not r.get("cached")), 4),
         "infraRetries": sum(r["errorClass"] == "infra" for r in records),
@@ -168,7 +177,8 @@ def analyze(folder, pass_at):
             "paired": {arm: paired(by_arm, arm, tasks_meta) for arm in sorted(by_arm) if arm != BASELINE and BASELINE in by_arm},
             "runs": [
                 {k: r[k] for k in ("task", "arm", "trial", "score", "mcpCalls", "argErrors", "goldSeen", "errorClass")}
-                | {"usd": round(run_cost(r), 4), "failure": failure_class(r, config["arms"][r["arm"]]["mcp"]) if r["score"] < pass_at else None}
+                | {"usd": round(run_cost(r), 4), "workspaceShas": workspace_shas(r)}
+                | {"failure": failure_class(r, config["arms"][r["arm"]]["mcp"]) if r["score"] < pass_at else None}
                 for r in sorted(runs, key=lambda r: (r["task"], r["arm"], r["trial"]))
             ],
         }
@@ -178,7 +188,7 @@ def analyze(folder, pass_at):
 
 def markdown(report):
     lines = [f"# OrgBench report: {report['twin']}", ""]
-    lines.append(f"CTX MCP: `{report['mcpUrl']}`. A run passes at a score of {report['passAt']} or more. Spend of this folder: ${report['spendUsd']}. Infrastructure retries: {report['infraRetries']}.")
+    lines.append(f"B1+ and ORACLE corpus: the plan of the twin and the context repo at `{report['contextSha'][:8]}`. CTX MCP: `{report['mcpUrl']}`. A run passes at a score of {report['passAt']} or more. Spend of this folder: ${report['spendUsd']}. Infrastructure retries: {report['infraRetries']}.")
     lines.append("")
     if report["invalidRuns"]:
         lines += ["**Invalid runs (left out):**", ""] + [f"- `{r['runId']}`: {'; '.join(r['reasons'])}" for r in report["invalidRuns"]] + [""]
@@ -203,13 +213,15 @@ def markdown(report):
                 m = s["mcp"]
                 lines.append(f"**{arm} process:** {m['calls']} MCP calls ({m['shareOfToolCalls']} of the tool calls), {m['tasksWithZeroMcpCalls']} tasks with no MCP call, {m['argErrors']} argument errors (rate {m['argErrorRate']}), {s['ownServiceErrorRuns']} runs with an own-service error. Server tools {m['serverTools']}, Jev calls {m['jevCalls']}. D5: {m['falkorSpans']} falkordb spans, {m['planeFallbackLogs']} plane fallback logs.")
                 lines.append("")
+                lines.append(f"**{arm} served snapshot** (`branch@sha` of the hits and files): " + ", ".join(f"`{k}` {v}" for k, v in sorted(m["served"].items())))
+                lines.append("")
         classes = {arm: s["failureClasses"] for arm, s in g["arms"].items() if s["failureClasses"]}
         if classes:
             lines.append("**Failure classes:** " + "; ".join(f"{arm}: {c}" for arm, c in classes.items()))
             lines.append("")
-        lines += ["| Task | Arm | Trial | Score | MCP calls | Arg errors | Gold seen | $ | Failure |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        lines += ["| Task | Arm | Trial | Score | MCP calls | Arg errors | Gold seen | $ | Failure | Workspace SHA read |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
         for r in g["runs"]:
-            lines.append(f"| {r['task']} | {r['arm']} | {r['trial']} | {r['score']} | {r['mcpCalls']} | {r['argErrors']} | {len(r['goldSeen'])} | {r['usd']} | {r['failure'] or ''} |")
+            lines.append(f"| {r['task']} | {r['arm']} | {r['trial']} | {r['score']} | {r['mcpCalls']} | {r['argErrors']} | {len(r['goldSeen'])} | {r['usd']} | {r['failure'] or ''} | {' '.join(sha[:8] for sha in r['workspaceShas'])} |")
         lines.append("")
     return "\n".join(lines)
 
