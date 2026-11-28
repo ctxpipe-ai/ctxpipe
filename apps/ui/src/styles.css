@@ -5,30 +5,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* The state variants that the shadcn-generated Tooltip and dropdown menu use.
-   They match the Radix data-state attribute and the Base UI boolean attribute.
-   Copied from shadcn's tailwind.css, so the app needs no shadcn package. */
-@custom-variant data-open {
-  &:where([data-state="open"]),
-  &:where([data-open]:not([data-open="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-closed {
-  &:where([data-state="closed"]),
-  &:where([data-closed]:not([data-closed="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-disabled {
-  &:where([data-disabled="true"]),
-  &:where([data-disabled]:not([data-disabled="false"])) {
-    @slot;
-  }
-}
-
 @plugin "tailwindcss-react-aria-components";
 @plugin "tailwindcss-animate";
 

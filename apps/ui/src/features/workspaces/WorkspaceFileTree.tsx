@@ -408,30 +408,30 @@ function WorkspaceFileTreeClient(props: {
 
   const search = useFileTreeSearch(model)
   const searchWasOpenRef = useRef(search.isOpen)
-  // Set when the member closes the search from the keyboard or the header
-  // button, so that focus moves from the hidden search field to a row.
-  const focusRowOnSearchCloseRef = useRef(false)
   useEffect(() => {
     if (searchWasOpenRef.current && !search.isOpen) {
       const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
-      if (selected) {
-        model.getItem(selected)?.focus()
-        // Pierre leaves DOM focus in the search field when the search closes,
-        // and TREE_UNSAFE_CSS hides a closed search field. Focus the row
-        // itself, so that a keyboard member keeps a visible focus.
-        if (focusRowOnSearchCloseRef.current) {
-          model
-            .getFileTreeContainer()
-            ?.shadowRoot?.querySelector<HTMLElement>(
-              `button[data-item-path="${CSS.escape(selected)}"]`,
-            )
-            ?.focus()
-        }
-      }
+      if (selected) model.getItem(selected)?.focus()
     }
-    focusRowOnSearchCloseRef.current = false
     searchWasOpenRef.current = search.isOpen
   }, [model, props.selectedPath, search.isOpen])
+
+  // The member closes the search with Escape or the header button. Pierre
+  // leaves DOM focus in the search field, and TREE_UNSAFE_CSS hides a closed
+  // search field, so focus the selected row: a keyboard member keeps a
+  // visible focus.
+  const closeSearchAndFocusRow = () => {
+    search.close()
+    const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
+    if (!selected) return
+    model.getItem(selected)?.focus()
+    model
+      .getFileTreeContainer()
+      ?.shadowRoot?.querySelector<HTMLElement>(
+        `button[data-item-path="${CSS.escape(selected)}"]`,
+      )
+      ?.focus()
+  }
 
   const listedPathsRef = useRef(entries.paths)
   useEffect(() => {
@@ -483,10 +483,8 @@ function WorkspaceFileTreeClient(props: {
           aria-pressed={search.isOpen}
           preventFocusOnPress
           onPress={() => {
-            if (search.isOpen) {
-              focusRowOnSearchCloseRef.current = true
-              search.close()
-            } else search.open()
+            if (search.isOpen) closeSearchAndFocusRow()
+            else search.open()
           }}
           className={cn(
             TREE_HEADER_ICON_CLASS,
@@ -523,8 +521,17 @@ function WorkspaceFileTreeClient(props: {
         aria-label="Workspace files"
         aria-describedby={changeSummary ? changeSummaryId : undefined}
         onKeyDownCapture={(event) => {
-          if (event.key === "Escape" && search.isOpen) {
-            focusRowOnSearchCloseRef.current = true
+          // Only Escape in the search field: Pierre handles Escape in a
+          // rename field or a context menu.
+          const target = event.nativeEvent.composedPath()[0]
+          if (
+            event.key === "Escape" &&
+            target instanceof HTMLElement &&
+            target.hasAttribute("data-file-tree-search-input")
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            closeSearchAndFocusRow()
           }
         }}
         onMouseOver={(event) => {

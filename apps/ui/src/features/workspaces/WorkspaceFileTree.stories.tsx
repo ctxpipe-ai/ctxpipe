@@ -229,6 +229,15 @@ function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
   return null
 }
 
+/** DOM focus is on the selected row of the tree, and the row shows its focus ring. */
+function expectFocusOnSelectedRow(root: ParentNode, path: RegExp) {
+  const host = findInShadows(root, "[role='tree']")?.getRootNode()
+  const focused = host instanceof ShadowRoot ? host.activeElement : null
+  expect(focused?.getAttribute("aria-selected")).toBe("true")
+  expect(focused?.getAttribute("data-item-path") ?? "").toMatch(path)
+  expect(focused?.getAttribute("data-item-focused")).toBe("true")
+}
+
 function PierreKeyboardFocusHarness(
   props: ComponentProps<typeof WorkspaceFileTree>,
 ) {
@@ -281,43 +290,20 @@ export const PierreKeyboardFocus = meta.story({
       expect(args.onSelect).toHaveBeenCalled()
     })
     await userEvent.keyboard("{Escape}")
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /billing/i))
+
+    // The header button closes the search the same way.
+    await userEvent.click(search)
     await waitFor(() => {
-      const selected =
-        findInShadows(
-          canvasElement,
-          "button[data-item-path*='billing'][aria-selected='true']",
-        ) ?? findInShadows(canvasElement, "[aria-selected='true']")
-      expect(selected).toBeTruthy()
+      const tree = findInShadows(canvasElement, "[role='tree']")?.getRootNode()
+      expect(tree instanceof ShadowRoot && tree.activeElement).toBe(
+        findInShadows(canvasElement, "input"),
+      )
     })
-    const selected = (findInShadows(
-      canvasElement,
-      "button[data-item-path*='billing'][aria-selected='true']",
-    ) ?? findInShadows(canvasElement, "[aria-selected='true']")) as HTMLElement
-    const selectedPath =
-      selected.getAttribute("data-item-path") ??
-      selected.getAttribute("aria-label") ??
-      selected.textContent ??
-      ""
-    expect(selectedPath).toMatch(/billing/i)
-    const focused = canvasElement.ownerDocument.activeElement
-    const pierreFocused = findInShadows(
-      canvasElement,
-      "button[data-item-focused='true']",
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Close search" }),
     )
-    expect(pierreFocused).toBeTruthy()
-    expect(pierreFocused?.getAttribute("data-item-path") ?? "").toMatch(
-      /billing/i,
-    )
-    expect(
-      selected === focused ||
-        selected.contains(focused) ||
-        Boolean(
-          selected.shadowRoot &&
-          focused &&
-          selected.shadowRoot.contains(focused),
-        ) ||
-        pierreFocused === selected,
-    ).toBe(true)
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /billing/i))
     expect(args.onSelect).toHaveBeenCalled()
   },
 })
