@@ -2,11 +2,15 @@
 FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS deps
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@11.28.11
+RUN npm install -g pnpm@11.28.13
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
 COPY apps/backend/package.json apps/backend/package.json
+# apps/backend links @ctxpipe/visual-review (workspace:*). pnpm 11.28.13 and
+# later stop a frozen install when the manifest of a linked workspace package
+# is missing.
+COPY packages/visual-review/package.json packages/visual-review/package.json
 # The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile
@@ -28,7 +32,7 @@ ENV CI=true
 # This stage has the node_modules of the deps stage but no workspace files. Do
 # not let pnpm 11 install again before the build (verifyDepsBeforeRun).
 ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
-RUN npm install -g pnpm@11.28.11
+RUN npm install -g pnpm@11.28.13
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
