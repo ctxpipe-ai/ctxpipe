@@ -1,0 +1,50 @@
+{
+  "tiers": {
+    "smoke": {
+      "splits": ["dev"],
+      "tasks": null,
+      "size": 20,
+      "arms": ["ctx"],
+      "models": ["haiku"],
+      "trials": 1,
+      "capUsd": 3,
+      "runCapUsd": 0.15,
+      "serverReserveUsd": 0.02,
+      "verdict": {
+        "maxArgErrorRate": 0.5,
+        "maxShareOfTasksWithoutMcp": 0.5,
+        "referenceScore": null,
+        "maxScoreDrop": 0.4
+      }
+    },
+    "dev": {
+      "splits": ["dev"],
+      "arms": ["b1plus", "ctx"],
+      "models": ["haiku"],
+      "trials": 2,
+      "capUsd": 20
+    },
+    "holdout": {
+      "splits": ["holdout"],
+      "arms": ["b1plus", "ctx"],
+      "models": ["haiku"],
+      "trials": 2,
+      "capUsd": 20,
+      "aggregateOnly": true
+    },
+    "release": {
+      "splits": ["dev", "holdout", "sealed"],
+      "arms": ["b1plus", "ctx", "oracle"],
+      "models": ["sonnet"],
+      "trials": 2,
+      "capUsd": 100,
+      "aggregateOnly": true
+    }
+  },
+  "sentinel": { "size": 15, "maxDrift": 0.25 },
+  "keep": {
+    "margins": { "score": 0.05, "costShare": 0.2, "harm": 0.05 },
+    "harmFamilies": ["T12"],
+    "minTasks": 10
+  }
+}

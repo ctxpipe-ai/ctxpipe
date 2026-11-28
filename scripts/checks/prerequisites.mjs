@@ -7,6 +7,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { graphReady } from "../ci/graph-ready.mjs"
+import { verifySmokeVerdict } from "./evals.mjs"
 
 // The named prerequisites of checks (the `prerequisites` of a manifest
 // record). Each one makes a thing or verifies it, and throws an error with
@@ -133,6 +134,11 @@ export const prerequisites = {
   },
   docker: {
     prepare: () => quiet("docker", ["info"], "Start Docker."),
+  },
+  // The smoke check of OrgBench reads the verdict of the smoke tier for the
+  // tool surface of the checkout; the paid run is a host command (evals.mjs).
+  "bench-smoke": {
+    prepare: verifySmokeVerdict,
   },
   "ast-grep": {
     prepare: () =>
