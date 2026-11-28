@@ -13,6 +13,7 @@ import { decide, isEvaluateError } from "@tanstack/ai"
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { scrubForModel } from "../services/scrubForModel.js"
 import {
@@ -151,7 +152,7 @@ export async function decideNoul(
           done.abort()
           span.setAttribute("jev.hedge_won", hedgeWon ?? false)
         }
-        const cost = answer.meta.usage.cost
+        const cost = billedCost(answer.meta.usage)
         if (cost !== undefined) span.setAttribute("gen_ai.usage.cost", cost)
         return new Map(
           Object.keys(questions).map((key) => {
@@ -183,6 +184,25 @@ export async function decideNoul(
       }
     },
   )
+}
+
+/**
+ * The USD of a decision call, by the rule of `gatewayCost`. On a
+ * bring-your-own-key route, OpenRouter reports in `cost` only its own fee,
+ * and the call also costs the provider charge (`costDetails.upstreamCost`).
+ * The patched OpenRouter adapter keeps `isByok` (`pnpm-workspace.yaml`).
+ */
+function billedCost(usage: {
+  cost?: number
+  costDetails?: { upstreamCost?: number }
+}): number | undefined {
+  return gatewayCost({
+    cost: usage.cost,
+    is_byok: (usage as { isByok?: boolean }).isByok,
+    cost_details: {
+      upstream_inference_cost: usage.costDetails?.upstreamCost,
+    },
+  })
 }
 
 const noulProbability = z.object({

@@ -1,8 +1,18 @@
 diff --git a/dist/esm/adapters/evaluate.js b/dist/esm/adapters/evaluate.js
-index 80600d0c047a6bbcbf8012f35252580c39d7b5fe..8f64c38e188357445406aa29bade5e45f76a3536 100644
+index 80600d0c047a6bbcbf8012f35252580c39d7b5fe..a24147581c1bec10acefd4396ffa253cfb0737da 100644
 --- a/dist/esm/adapters/evaluate.js
 +++ b/dist/esm/adapters/evaluate.js
-@@ -81,17 +81,19 @@ var OpenRouterEvaluateAdapter = class extends BaseEvaluateAdapter {
+@@ -63,7 +63,8 @@ function mapUsage(usage) {
+ 			completionTokens,
+ 			totalTokens
+ 		}),
+-		...extractUsageCost(usage)
++		...extractUsageCost(usage),
++		...usage.is_byok === true && { isByok: true }
+ 	};
+ }
+ /**
+@@ -81,17 +82,19 @@ var OpenRouterEvaluateAdapter = class extends BaseEvaluateAdapter {
  		this.clientConfig = config;
  	}
  	async evaluate(options) {
@@ -24,7 +34,7 @@ index 80600d0c047a6bbcbf8012f35252580c39d7b5fe..8f64c38e188357445406aa29bade5e45
  					model,
  					state,
  					questions
-@@ -100,7 +102,10 @@ var OpenRouterEvaluateAdapter = class extends BaseEvaluateAdapter {
+@@ -100,7 +103,10 @@ var OpenRouterEvaluateAdapter = class extends BaseEvaluateAdapter {
  			});
  			if (!response.ok) {
  				const detail = await response.text().catch(() => "");

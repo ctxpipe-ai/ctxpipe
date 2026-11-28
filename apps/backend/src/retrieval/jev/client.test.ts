@@ -65,6 +65,42 @@ describe("decideNoul", () => {
     expect(span?.attributes["gen_ai.usage.cost"]).toBe(0.002)
   })
 
+  it("records the provider charge of a bring-your-own-key call in the cost, as the client before decide()", async () => {
+    const answer = (usage: Record<string, unknown>) =>
+      server.use(
+        http.post(DECISIONS, () =>
+          HttpResponse.json({
+            answers: { sky: { type: "noul", noul: 0.7 } },
+            usage,
+          }),
+        ),
+      )
+    const costOfCall = async () => {
+      spans.reset()
+      await decideNoul(
+        ["The state."],
+        { sky: question },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+      return spans.spanNamed("jev.decide")?.attributes["gen_ai.usage.cost"]
+    }
+
+    // OpenRouter reports only its own fee in `cost` on a BYOK route.
+    answer({
+      cost: 0.0001,
+      is_byok: true,
+      cost_details: { upstream_inference_cost: 0.002 },
+    })
+    expect(await costOfCall()).toBeCloseTo(0.0021, 8)
+
+    // Without BYOK, `cost` already holds the whole charge.
+    answer({
+      cost: 0.002,
+      cost_details: { upstream_inference_cost: 0.002 },
+    })
+    expect(await costOfCall()).toBe(0.002)
+  })
+
   it("sends the request of the client before decide(): the same body, and the same text but the place of the provider block", async () => {
     // The request of the Jev client of before CTX-1721 for the same inputs:
     // `JSON.stringify` of the scrubbed `{ model, state, questions, provider }`.

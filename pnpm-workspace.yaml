@@ -72,7 +72,8 @@ patchedDependencies:
   # Permanent (CTX-1721; the CTO chose no upstream PR, 2026-11-26). Apply it again on each version bump.
   # The decision adapter sends `modelOptions` (the OpenRouter routing block: ZDR, ADR-068 decision 7),
   # uses `baseURL` (MODEL_PROVIDER_URL), and keeps the error body on the error, so that the error
-  # message stays free of content and only a fixed routing message reaches a span.
+  # message stays free of content and only a fixed routing message reaches a span. It keeps `is_byok` of the usage
+  # (`isByok`), so that the cost of a bring-your-own-key call holds the provider charge (`gatewayCost`).
   '@tanstack/ai-openrouter@1.1.2': patches/@tanstack__ai-openrouter@1.1.2.patch
   # @tanstack/ai 1.x imports fast-json-patch. Its package ships index.ts beside index.js, without the src/ that
   # index.ts imports, and tsx loads index.ts: every tsx run that reaches @tanstack/ai (src/db/migrate.ts in CI and

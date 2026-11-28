@@ -176,8 +176,9 @@ const envSchema = z
     MODEL_PROVIDER_ALLOWLIST: z.string().optional(),
     /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-    // The decision model of the knowledge plane. A bad value stops the
-    // backend at start.
+    // The decision model of the knowledge plane. A value of the wrong form
+    // stops the backend at start. A missing key shows at the first decision
+    // call, as a `config` JevError.
     ...decisionModelShape,
 
     // OpenTelemetry (traces, logs, metrics)

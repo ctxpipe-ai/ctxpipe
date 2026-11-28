@@ -48,12 +48,7 @@ export function decisionModelSettings(): DecisionModel | null {
   if (!env.success) return null
   const provider = env.data.DECISION_MODEL_PROVIDER ?? "openrouter"
   const model =
-    env.data.DECISION_MODEL_NAME ??
-    {
-      openrouter: JEV_MODEL,
-      openai: "gpt-6-luna",
-      gemini: "gemini-decision-1",
-    }[provider]
+    env.data.DECISION_MODEL_NAME ?? DECISION_PROVIDERS[provider].defaultModel
   const apiKey = env.data.DECISION_MODEL_API_KEY
   const baseUrl = env.data.DECISION_MODEL_URL
   if (apiKey) return { provider, model, apiKey, baseUrl }
@@ -68,35 +63,51 @@ export function decisionModelSettings(): DecisionModel | null {
   }
 }
 
-/**
- * The `decide()` adapter and model options of `settings`. A call to
- * OpenRouter carries the provider block of ADR-070, so it goes only to ZDR
- * endpoints (ADR-068 decision 7). Another provider gets no OpenRouter field:
- * the data terms of the operator's provider apply.
- */
-export function decisionAdapter(settings: DecisionModel): {
+type DecisionCall = {
   adapter: AnyEvaluateAdapter
-  modelOptions?: { provider: Record<string, unknown> }
-} {
-  const { provider, model, apiKey, baseUrl } = settings
-  switch (provider) {
-    case "openrouter":
-      return {
-        adapter: createOpenRouterDecider(model, apiKey, { baseURL: baseUrl }),
-        modelOptions: { provider: openRouterProvider() },
-      }
-    case "openai":
-      // No retry in the SDK: the hedge of `decideNoul` is the only second
-      // request, and the time limit is that of the caller.
-      return {
-        adapter: createOpenaiDecider(model, apiKey, {
-          baseURL: baseUrl,
-          maxRetries: 0,
-        }),
-      }
-    case "gemini":
-      return {
-        adapter: createGeminiDecider(model, apiKey, { baseURL: baseUrl }),
-      }
+  modelOptions?: { provider: ReturnType<typeof openRouterProvider> }
+}
+
+/**
+ * Each decision provider: its default model, and its `decide()` adapter and
+ * model options. A call to OpenRouter carries the provider block of ADR-070,
+ * so it goes only to ZDR endpoints (ADR-068 decision 7). Another provider
+ * gets no OpenRouter field: the data terms of the operator's provider apply.
+ */
+const DECISION_PROVIDERS: Record<
+  DecisionModel["provider"],
+  {
+    defaultModel: string
+    call: (settings: DecisionModel) => DecisionCall
   }
+> = {
+  openrouter: {
+    defaultModel: JEV_MODEL,
+    call: ({ model, apiKey, baseUrl }) => ({
+      adapter: createOpenRouterDecider(model, apiKey, { baseURL: baseUrl }),
+      modelOptions: { provider: openRouterProvider() },
+    }),
+  },
+  openai: {
+    defaultModel: "gpt-6-luna",
+    // No retry in the SDK: the hedge of `decideNoul` is the only second
+    // request, and the time limit is that of the caller.
+    call: ({ model, apiKey, baseUrl }) => ({
+      adapter: createOpenaiDecider(model, apiKey, {
+        baseURL: baseUrl,
+        maxRetries: 0,
+      }),
+    }),
+  },
+  gemini: {
+    defaultModel: "gemini-decision-1",
+    call: ({ model, apiKey, baseUrl }) => ({
+      adapter: createGeminiDecider(model, apiKey, { baseURL: baseUrl }),
+    }),
+  },
+}
+
+/** The `decide()` adapter and model options of `settings`. */
+export function decisionAdapter(settings: DecisionModel): DecisionCall {
+  return DECISION_PROVIDERS[settings.provider].call(settings)
 }

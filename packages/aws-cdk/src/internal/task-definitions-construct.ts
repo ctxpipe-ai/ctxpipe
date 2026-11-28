@@ -52,14 +52,12 @@ export class TaskDefinitionsConstruct extends Construct {
             }
           : {}),
       },
-      props.resolvedDecisionModel && {
-        ...props.resolvedDecisionModel,
-        ...(decisionModelSecret
-          ? {
-              apiKeyBinding: { secret: decisionModelSecret, field: "API_KEY" },
-            }
-          : {}),
-      },
+      // `decisionModel` has a required key, so the secret is there.
+      props.resolvedDecisionModel &&
+        decisionModelSecret && {
+          ...props.resolvedDecisionModel,
+          apiKeyBinding: { secret: decisionModelSecret, field: "API_KEY" },
+        },
     )
 
     const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? ""

@@ -41,7 +41,6 @@ export interface ResolvedDecisionModelConfig {
   readonly provider: CtxPipeDecisionModelProps["provider"]
   readonly model?: string
   readonly baseUrl?: string
-  readonly apiKeyBinding?: ModelProviderSecretBinding
 }
 
 interface ModelContainerConfig {
@@ -166,7 +165,9 @@ export function resolveDecisionModel(
 
 export function buildModelContainerConfig(
   resolved: ResolvedModelProviderConfig,
-  decision?: ResolvedDecisionModelConfig,
+  decision?: ResolvedDecisionModelConfig & {
+    readonly apiKeyBinding: ModelProviderSecretBinding
+  },
 ): ModelContainerConfig {
   const environment: Record<string, string> = {
     MODEL_PROVIDER: resolved.provider,
@@ -200,11 +201,10 @@ export function buildModelContainerConfig(
     environment.DECISION_MODEL_PROVIDER = decision.provider
     if (decision.model) environment.DECISION_MODEL_NAME = decision.model
     if (decision.baseUrl) environment.DECISION_MODEL_URL = decision.baseUrl
-    if (decision.apiKeyBinding)
-      secrets.DECISION_MODEL_API_KEY = ecs.Secret.fromSecretsManager(
-        decision.apiKeyBinding.secret,
-        decision.apiKeyBinding.field,
-      )
+    secrets.DECISION_MODEL_API_KEY = ecs.Secret.fromSecretsManager(
+      decision.apiKeyBinding.secret,
+      decision.apiKeyBinding.field,
+    )
   }
 
   return { environment, secrets }
