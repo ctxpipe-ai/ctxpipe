@@ -22,9 +22,11 @@ App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changes
 2. The [Deploy workflow](../.github/workflows/deploy.yaml) runs `changesets/action`, which opens or updates a **chore(release): version packages** PR (version bumps + changelog updates).
 3. Review and merge that version PR; the same workflow then publishes changed publishable packages to npm.
 
-## Snapshot prerelease (manual)
+## Snapshot prerelease
 
-To publish pending changesets to npm **without** cutting a stable release or consuming changesets on `main`:
+Each push to `main` that adds a changeset of `@ctxpipe/aws-cdk` publishes a snapshot to the npm dist-tag `canary` (Deploy workflow, jobs `canary_plan` and `prerelease`). The plan compares the pending changesets with the commit that the current `canary` pins, so a manual dispatch to `canary` changes what the next push compares with.
+
+To publish a snapshot by hand, **without** cutting a stable release or consuming changesets on `main`:
 
 1. Open **Actions → Deploy → Run workflow** in GitHub.
 2. Choose the git ref (default `main`) and an npm dist-tag (`next`, `canary`, or `beta`). The workflow stamps `@ctxpipe/aws-cdk` with the checked-out git SHA as the service image tag.

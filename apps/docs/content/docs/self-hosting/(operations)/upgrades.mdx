@@ -373,6 +373,24 @@ cdk deploy
 
 The migrate task of this release also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
+### The canary channel
+
+The npm dist-tag `latest` holds the stable release. Use it for production.
+
+The npm dist-tag `canary` holds a snapshot of `main`. Each merge to `main`
+that changes `@ctxpipe/aws-cdk` publishes a new canary. The canary pins the
+images of that merge. We do not test a canary on AWS before we publish it.
+Use it only when you want each change before the stable release.
+
+```bash
+pnpm add @ctxpipe/aws-cdk@canary
+```
+
+Run the same command again to get the newest canary. To go back to the stable
+release, run `pnpm add @ctxpipe/aws-cdk@latest`. A canary can run migrations
+that the stable release does not have yet. Take a database snapshot before
+you go back.
+
 ### AWS CDK knowledge store host
 
 The first upgrade to a version with the knowledge store adds one EC2 host for
