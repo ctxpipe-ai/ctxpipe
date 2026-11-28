@@ -1,5 +1,44 @@
 # ctxpipe
 
+## 0.6.0
+
+### Minor Changes
+
+- f4fb38b: The `ctxpipe` CLI now needs Node.js 22.12 or newer (`engines`), because chalk 6 and commander 15 dropped older versions. The backend takes uuid 14, which changes no behavior that operators see.
+- f6e8126: A repository that you set up with CLI 0.2.0 now repairs its memory setup at the next agent session. You do not have to do a step.
+  
+  CLI 0.3.0 removed the commands `memory mcp` and `memory hook`. The hooks and MCP entries of CLI 0.2.0 still call them. Thus these hooks failed at each session start and stop, and memory capture stopped.
+  
+  These commands now remove each 0.2.0 entry where it is: in the repository and in your home directory. For a `ctxpipe-memory` server in `~/.claude.json`, they run `claude mcp remove <name> --scope user`. With no `claude` command, that entry stays, and the stderr line gives the command to run. In a repository that has `.ai/memory`, they also apply the `memory init` upgrade. They write the current capture hooks of the repository for each host that had a 0.2.0 entry in the repository. In another directory, they only remove the 0.2.0 entries. They always exit with code 0 and write nothing to stdout. They write one line to stderr that tells what they did. A second run changes nothing.
+  
+  A 0.2.0 entry in your home directory is only removed. It does not become a capture hook. A user-scope capture hook writes `.ai/memory/events/` into each directory where a session starts, also into a directory with no memory. If a repository got its capture only from a home entry, run `npx ctxpipe memory init` in it.
+  
+  In a repository with `.ai/memory`, the repair also writes these files, as `memory init` does:
+  
+  - the memory rules and skills that the capture follow-ups name
+  - the `.ai/memory` seed files that are missing
+  - the `.gitignore` line for `.ai/memory/events`
+  
+  Outside a repository with `.ai/memory`, the repair changes only the files that hold a 0.2.0 entry. It stops with no change when a path goes through a symlink, or when a JSON file that it changes does not parse.
+  
+  The hooks continue to run `npx -y ctxpipe …` with no version. Thus each hook run uses the newest release. `memory init` replaces a capture hook that has a version pin (`ctxpipe@<version>`) with the unpinned command.
+  
+  `memory init` and the repair now write each file through a temporary file and a rename. Thus a process that reads the file at the same time never sees a partial file.
+
+### Patch Changes
+
+- 7f886a8: `ctxpipe init` and `ctxpipe mcp add` now write the generic `/mcp` URL without the `?orgSlug=` query. The server ignores that query, and each tool call names its organization.
+- fe580cb: Security fixes from the npm advisories that reach the backend:
+  
+  - `/mcp` refuses a request body over 4 MiB and a tool call with more than 10,000 input elements (GHSA-f897-62hf-6gxq, GHSA-46jr-4wx8-v453). The MCP SDK is now 1.32.
+  - zod 4.6.7 stops a validation of an oversized array from exhausting memory (GHSA-mrhx-c7xc-m3w5).
+  - Device login (`ctxpipe auth login`): only the ctxpipe CLI can start one, and the approval page no longer approves a code from a link by itself. The CLI now always prints the code, and the person compares it with the page and presses Approve (GHSA-q84f-53jg-9ppm).
+- a4b61c6: The service images and the CLI take the newest patch and minor versions of their npm dependencies (CTX-1563).
+- 26b4cb0: The weekly dependency batch of 2026-11-25: dependency updates within the 7-day wait, in the app images and the CLI's runtime dependencies.
+- 12ed995: The README links to the new API keys page for how to set `CTXPIPE_API_KEY`. The old link went to a section that no longer exists.
+- 70448bc: `ctxpipe doctor mcp` names the official MCP Inspector, not MCPJam, as the client for authenticated checks.
+- 9318ff6: Build the package with TypeScript 6.
+
 ## 0.5.2
 
 ### Patch Changes
