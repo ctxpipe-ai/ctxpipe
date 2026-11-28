@@ -229,6 +229,15 @@ function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
   return null
 }
 
+/** DOM focus is on the selected row of the tree, and the row shows its focus ring. */
+function expectFocusOnSelectedRow(root: ParentNode, path: RegExp) {
+  const host = findInShadows(root, "[role='tree']")?.getRootNode()
+  const focused = host instanceof ShadowRoot ? host.activeElement : null
+  expect(focused?.getAttribute("aria-selected")).toBe("true")
+  expect(focused?.getAttribute("data-item-path") ?? "").toMatch(path)
+  expect(focused?.getAttribute("data-item-focused")).toBe("true")
+}
+
 function PierreKeyboardFocusHarness(
   props: ComponentProps<typeof WorkspaceFileTree>,
 ) {
@@ -252,7 +261,7 @@ function PierreKeyboardFocusHarness(
 export const PierreKeyboardFocus = meta.story({
   parameters: {
     intent:
-      "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
+      "Catches a file tree search that loses keyboard focus. Escape or the header button closes the search and returns focus to the selected row, also when the query hid that row. Typing then Enter selects a file. Not for the file list content.",
   },
   tags: ["required"],
   args: {
@@ -275,49 +284,38 @@ export const PierreKeyboardFocus = meta.story({
       findInShadows(canvasElement, "input") ??
       findInShadows(canvasElement, "[role='searchbox']")
     if (!input) throw new Error("Pierre search field was not found")
+
+    // Escape without Enter cancels the query, which hid the selected row.
     await userEvent.type(input, "billing")
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /AGENTS/))
+
+    await userEvent.click(search)
+    await waitFor(() => {
+      const tree = findInShadows(canvasElement, "[role='tree']")?.getRootNode()
+      expect(tree instanceof ShadowRoot && tree.activeElement).toBe(input)
+    })
+    // The closed search field keeps its text: delete it first.
+    await userEvent.type(input, "{Backspace>20/}billing")
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(args.onSelect).toHaveBeenCalled()
     })
     await userEvent.keyboard("{Escape}")
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /billing/i))
+
+    // The header button closes the search the same way.
+    await userEvent.click(search)
     await waitFor(() => {
-      const selected =
-        findInShadows(
-          canvasElement,
-          "button[data-item-path*='billing'][aria-selected='true']",
-        ) ?? findInShadows(canvasElement, "[aria-selected='true']")
-      expect(selected).toBeTruthy()
+      const tree = findInShadows(canvasElement, "[role='tree']")?.getRootNode()
+      expect(tree instanceof ShadowRoot && tree.activeElement).toBe(
+        findInShadows(canvasElement, "input"),
+      )
     })
-    const selected = (findInShadows(
-      canvasElement,
-      "button[data-item-path*='billing'][aria-selected='true']",
-    ) ?? findInShadows(canvasElement, "[aria-selected='true']")) as HTMLElement
-    const selectedPath =
-      selected.getAttribute("data-item-path") ??
-      selected.getAttribute("aria-label") ??
-      selected.textContent ??
-      ""
-    expect(selectedPath).toMatch(/billing/i)
-    const focused = canvasElement.ownerDocument.activeElement
-    const pierreFocused = findInShadows(
-      canvasElement,
-      "button[data-item-focused='true']",
-    )
-    expect(pierreFocused).toBeTruthy()
-    expect(pierreFocused?.getAttribute("data-item-path") ?? "").toMatch(
-      /billing/i,
-    )
-    expect(
-      selected === focused ||
-        selected.contains(focused) ||
-        Boolean(
-          selected.shadowRoot &&
-          focused &&
-          selected.shadowRoot.contains(focused),
-        ) ||
-        pierreFocused === selected,
-    ).toBe(true)
+    const close = await canvas.findByRole("button", { name: "Close search" })
+    await userEvent.click(close)
+    await userEvent.unhover(close)
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /billing/i))
     expect(args.onSelect).toHaveBeenCalled()
   },
 })

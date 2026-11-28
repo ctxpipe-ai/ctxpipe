@@ -416,6 +416,29 @@ function WorkspaceFileTreeClient(props: {
     searchWasOpenRef.current = search.isOpen
   }, [model, props.selectedPath, search.isOpen])
 
+  // The member closes the search with Escape or the header button. Pierre
+  // leaves DOM focus in the search field, and TREE_UNSAFE_CSS hides a closed
+  // search field, so focus the selected row: a keyboard member keeps a
+  // visible focus. The query can hide the selected row, so wait until the
+  // tree renders it again.
+  const closeSearchAndFocusRow = () => {
+    search.close()
+    const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
+    if (!selected) return
+    model.getItem(selected)?.focus()
+    const focusRow = (framesLeft: number) => {
+      const row = model
+        .getFileTreeContainer()
+        ?.shadowRoot?.querySelector<HTMLElement>(
+          `button[data-item-path="${CSS.escape(selected)}"]`,
+        )
+      if (row) row.focus()
+      else if (framesLeft > 0)
+        requestAnimationFrame(() => focusRow(framesLeft - 1))
+    }
+    requestAnimationFrame(() => focusRow(5))
+  }
+
   const listedPathsRef = useRef(entries.paths)
   useEffect(() => {
     // A new path list (for example the sandbox tree that replaces the default
@@ -466,7 +489,7 @@ function WorkspaceFileTreeClient(props: {
           aria-pressed={search.isOpen}
           preventFocusOnPress
           onPress={() => {
-            if (search.isOpen) search.close()
+            if (search.isOpen) closeSearchAndFocusRow()
             else search.open()
           }}
           className={cn(
@@ -503,6 +526,20 @@ function WorkspaceFileTreeClient(props: {
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
         aria-describedby={changeSummary ? changeSummaryId : undefined}
+        onKeyDownCapture={(event) => {
+          // Only Escape in the search field: Pierre handles Escape in a
+          // rename field or a context menu.
+          const target = event.nativeEvent.composedPath()[0]
+          if (
+            event.key === "Escape" &&
+            target instanceof HTMLElement &&
+            target.hasAttribute("data-file-tree-search-input")
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            closeSearchAndFocusRow()
+          }
+        }}
         onMouseOver={(event) => {
           const path = workspaceFilePathFromHoverNodes(
             event.nativeEvent.composedPath(),
