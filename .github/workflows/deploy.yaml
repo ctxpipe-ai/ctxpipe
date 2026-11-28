@@ -540,18 +540,19 @@ jobs:
       - id: plan
         run: node scripts/ci/canary-plan.mjs
 
-  # A snapshot of each package with a changeset, on an npm dist-tag. Never
-  # `latest`. A dispatch without `deploy` publishes `ref` on `dist_tag`. A push
-  # to main publishes HEAD on `canary` when canary_plan says so, after
-  # publish_images gave each image the tag of HEAD on GHCR. The package pins
-  # its images to HEAD.
+  # A snapshot of each package with a pending changeset, on an npm dist-tag.
+  # Never `latest`, and never a stable version (scripts/ci/snapshot-guard.mjs).
+  # A dispatch without `deploy` publishes `ref` on `dist_tag`. A push to main
+  # publishes HEAD on `canary` when canary_plan says so. The package pins its
+  # images to HEAD, so the push path waits for publish_images. It runs
+  # dependency code, so it also waits for ecr_digests, as release does.
   prerelease:
     timeout-minutes: 20
     name: Prerelease
     needs:
       - canary_plan
-      - publish_images
-    if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && !inputs.deploy) || (needs.canary_plan.outputs.publish == 'true' && needs.publish_images.result == 'success')) }}
+      - ecr_digests
+    if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && !inputs.deploy) || (needs.canary_plan.outputs.publish == 'true' && needs.ecr_digests.result == 'success')) }}
     # github-hosted: a package build and the npm publish, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -571,13 +572,13 @@ jobs:
       - name: Refuse a commit that is not on main
         run: git merge-base --is-ancestor HEAD origin/main
 
-      # The images that the package pins to HEAD
-      # (packages/aws-cdk/src/internal/task-definitions-construct.ts). A
+      # Each image that the package pins to HEAD, from the construct. A
       # self-hosted stack pulls them with no credentials.
       - name: Check that the images of HEAD pull without credentials
         run: |
-          for image in backend worker ui codesearch chat-sandbox; do
-            bash scripts/ci/check-image-public.sh "ctxpipe-ai/$image" "$(git rev-parse HEAD)"
+          images="$(grep -o 'ghcr\.io/ctxpipe-ai/[a-z-]*' packages/aws-cdk/src/internal/task-definitions-construct.ts | sort -u)"
+          for image in $images; do
+            bash scripts/ci/check-image-public.sh "${image#ghcr.io/}" "$(git rev-parse HEAD)"
           done
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

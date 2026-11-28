@@ -386,10 +386,10 @@ Use it only when you want each change before the stable release.
 pnpm add @ctxpipe/aws-cdk@canary
 ```
 
-`pnpm update` does not move a canary to a newer canary or to a stable
-release. Run the same command again to get the newest canary. A canary can
-run migrations that the stable release does not have yet. Take a database
-snapshot before you go back to the stable release.
+Run the same command again to get the newest canary. To go back to the stable
+release, run `pnpm add @ctxpipe/aws-cdk@latest`. A canary can run migrations
+that the stable release does not have yet. Take a database snapshot before
+you go back.
 
 ### AWS CDK knowledge store host
 

@@ -541,12 +541,14 @@ test("a deploy dispatch is a base, and a prerelease dispatch is not", async () =
 // The jobs of deploy.yaml that run, from the `if:` and `needs:` of each job,
 // with GitHub's rules: a condition without a status function also needs
 // success(), and success() and failure() look at every job before the job.
-// Each job that runs succeeds, except the jobs in `broken`.
+// Each job that runs succeeds, except the jobs in `broken`. `canary` is the
+// output `publish` of canary_plan.
 function jobsThatRun({
   event,
   ref = "refs/heads/main",
   deploy,
   build,
+  canary = "false",
   broken = [],
 }) {
   const { jobs } = parse(
@@ -581,7 +583,10 @@ function jobsThatRun({
           need,
           {
             result: results[need],
-            outputs: need === "image_plan" ? { build } : {},
+            outputs:
+              { image_plan: { build }, canary_plan: { publish: canary } }[
+                need
+              ] ?? {},
           },
         ]),
       ),
@@ -657,14 +662,33 @@ const deployJobs = [
 const sorted = (names) => [...names].sort()
 
 test("a push to main runs the deploy, also when no image builds", () => {
+  const pushJobs = [...deployJobs, "release", "canary_plan"]
   assert.deepEqual(
     sorted(jobsThatRun({ event: "push", build: '[{"image":"ui"}]' })),
-    sorted([...deployJobs, "release"]),
+    sorted(pushJobs),
   )
   const unbuilt = ["build_images_amd64", "build_images_arm64"]
   assert.deepEqual(
     sorted(jobsThatRun({ event: "push", build: "[]" })),
-    sorted([...deployJobs, "release"].filter((job) => !unbuilt.includes(job))),
+    sorted(pushJobs.filter((job) => !unbuilt.includes(job))),
+  )
+})
+
+test("a push to main publishes a canary only when canary_plan says so, after ecr_digests", () => {
+  const pushJobs = [...deployJobs, "release", "canary_plan"]
+  assert.deepEqual(
+    sorted(
+      jobsThatRun({ event: "push", build: '[{"image":"ui"}]', canary: "true" }),
+    ),
+    sorted([...pushJobs, "prerelease"]),
+  )
+  assert.ok(
+    !jobsThatRun({
+      event: "push",
+      build: '[{"image":"ui"}]',
+      canary: "true",
+      broken: ["ecr_digests"],
+    }).includes("prerelease"),
   )
 })
 
@@ -674,10 +698,16 @@ test("a failed build stops the publish and every job after it", () => {
       jobsThatRun({
         event: "push",
         build: '[{"image":"ui"}]',
+        canary: "true",
         broken: ["build_images_arm64"],
       }),
     ),
-    sorted(["image_plan", "build_images_amd64", "build_images_arm64"]),
+    sorted([
+      "image_plan",
+      "build_images_amd64",
+      "build_images_arm64",
+      "canary_plan",
+    ]),
   )
 })
 

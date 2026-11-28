@@ -104,25 +104,39 @@ test("the changeset of a cancelled run publishes in the next run", async () => {
   assert.match(plan.reason, /cancelled\.md/)
 })
 
-test("a changeset that a version commit deleted still publishes a canary", async () => {
+// The version PR consumes the changeset: the stable release has the change.
+test("a changeset that the version PR consumed publishes no canary", async () => {
   const { dir, commit } = repository()
   canaryOnNpm(commit({}))
   commit({ ".changeset/b.md": awsCdk })
-  commit({ ".changeset/b.md": null, "packages/aws-cdk/CHANGELOG.md": "# 3.3.0\n" })
+  commit({
+    ".changeset/b.md": null,
+    "packages/aws-cdk/CHANGELOG.md": "# 3.3.0\n",
+  })
+  const plan = await canaryPlan({ root: dir, registry })
+  assert.equal(plan.publish, false, plan.reason)
+})
+
+test("a new changeset with the name of a consumed changeset publishes a canary", async () => {
+  const { dir, commit } = repository()
+  canaryOnNpm(commit({ ".changeset/b.md": awsCdk }))
+  commit({ ".changeset/b.md": null })
+  commit({ ".changeset/b.md": awsCdk.replace("A fix.", "Another fix.") })
   const plan = await canaryPlan({ root: dir, registry })
   assert.equal(plan.publish, true, plan.reason)
 })
 
-test("a canary commit that is not in the history publishes a canary", async () => {
+test("a canary commit that is not in the clone publishes a canary", async () => {
   const { dir, commit } = repository()
-  commit({ ".changeset/b.md": empty })
+  commit({ ".changeset/b.md": awsCdk })
   canaryOnNpm("891aa0c2787c64e3086be447f49975d1a9d02b31")
   const plan = await canaryPlan({ root: dir, registry })
   assert.equal(plan.publish, true, plan.reason)
 })
 
 test("no canary on npm publishes a canary", async () => {
-  const { dir } = repository()
+  const { dir, commit } = repository()
+  commit({ ".changeset/b.md": awsCdk })
   server.use(
     http.get(`${registry}/@ctxpipe%2faws-cdk`, () =>
       HttpResponse.json({ "dist-tags": { latest: "3.2.0" } }),
@@ -133,7 +147,8 @@ test("no canary on npm publishes a canary", async () => {
 })
 
 test("an npm error fails the plan", async () => {
-  const { dir } = repository()
+  const { dir, commit } = repository()
+  commit({ ".changeset/b.md": awsCdk })
   server.use(
     http.get(`${registry}/@ctxpipe%2faws-cdk`, () =>
       HttpResponse.text("down", { status: 503 }),
