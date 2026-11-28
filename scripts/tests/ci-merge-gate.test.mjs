@@ -1470,7 +1470,10 @@ test("the summary heading names the mode of the run and the config mode", () => 
   // A gate config whose plan job left no plan.json: the full run gates.
   const gateNoPlan = text({ ...pinned, mode: "gate" })
   assert.ok(gateNoPlan.startsWith("## Merge gate (full run)\n"))
-  assert.match(gateNoPlan, /config mode `gate`/)
+  assert.match(
+    gateNoPlan,
+    /\*\*Mode:\*\* full \(no gate plan\), config mode `gate`; gated run would:/,
+  )
   const shadowRun = text(pinned)
   assert.ok(shadowRun.startsWith("## Merge gate (shadow)\n"))
   assert.match(

@@ -1342,7 +1342,7 @@ export function summary(decision, runUrl) {
   lines.push(
     decision.mode === "full"
       ? `**Mode:** full (${code(decision.reason)}); ${configured}. The full run gates.`
-      : `**Mode:** shadow, ${configured}; gated run would: **${gated}**. The full run gates.`,
+      : `**Mode:** ${shadowRun ? "shadow" : "full (no gate plan)"}, ${configured}; gated run would: **${gated}**. The full run gates.`,
     "",
     `**Full run:** ${decision.fullRun.verdict}${decision.fullRun.failed.length ? ` (failed: ${decision.fullRun.failed.map(code).join(", ")})` : ""}`,
     "",
