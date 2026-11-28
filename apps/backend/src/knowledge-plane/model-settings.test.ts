@@ -31,6 +31,13 @@ it.each([
       MODEL_PROVIDER_URL: "https://openrouter.ai/api/v1",
     },
   ],
+  [
+    "an allowlist with the provider of Jev",
+    {
+      MODEL_PROVIDER: "openrouter",
+      MODEL_PROVIDER_ALLOWLIST: "azure,typesafe",
+    },
+  ],
 ])("logs nothing with %s and a key", (_name, env) => {
   for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
@@ -48,6 +55,14 @@ it.each([
       MODEL_PROVIDER: "openai-like",
       MODEL_PROVIDER_URL: "https://api.openai.com/v1",
       MODEL_PROVIDER_API_KEY: "test-key",
+    },
+  ],
+  [
+    "an allowlist without the provider of Jev",
+    {
+      MODEL_PROVIDER: "openrouter",
+      MODEL_PROVIDER_API_KEY: "test-key",
+      MODEL_PROVIDER_ALLOWLIST: "azure,google-vertex",
     },
   ],
 ])("logs one error with %s, and no key in it", (_name, env) => {

@@ -47,6 +47,8 @@ const workspace = [
 const backend = [
   ...workspace,
   "shared",
+  // The knowledge plane settings rule, shared with @ctxpipe/aws-cdk.
+  "packages/aws-cdk/src/internal/knowledge-plane-settings.ts",
   "apps/backend/package.json",
   // The install needs the manifest of each workspace package the backend
   // links.

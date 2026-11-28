@@ -9,6 +9,7 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { z } from "zod"
 
+import { JEV_PROVIDER } from "../../../../../packages/aws-cdk/src/internal/knowledge-plane-settings.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
@@ -17,7 +18,7 @@ import { openRouterProvider } from "../services/openRouterProvider.js"
 import { scrubForModel } from "../services/scrubForModel.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
-export const JEV_MODEL = "typesafe/jev-1.14"
+export const JEV_MODEL = `${JEV_PROVIDER}/jev-1.14`
 
 /**
  * The state of a decisions request: text only. Jev gets no image bytes
