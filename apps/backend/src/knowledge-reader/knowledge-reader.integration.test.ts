@@ -1892,7 +1892,6 @@ describe("the knowledge reader seam", () => {
   })
 
   it("on: a seed of the copy that the view hides reads as the copy that it shows (CTX-1697)", async () => {
-    await setFlag("on")
     const workspaceId = ids.ready as string
     // An overlay always folds: a copy of the default branch file in another
     // case. The view hides one of the two copies.
