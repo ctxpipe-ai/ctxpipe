@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 import { afterAll, expect, it } from "vitest"
 
 import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
-import { freePort, startClickHouse } from "./clickhouse.js"
+import { startClickHouse } from "./clickhouse.js"
 import { contractImage } from "./contract-images.js"
 
 const exec = promisify(execFile)
@@ -32,16 +32,8 @@ it("starts on a new port when another container takes the chosen port before doc
     contractImage("clickhouse"),
   )
   const held = Number((await docker("port", holder, "8123")).split(":").pop())
-  let calls = 0
-  const clickhouse = await startClickHouse({
-    hostPort: async () => {
-      calls++
-      if (calls === 1) return held
-      return freePort()
-    },
-  })
+  const clickhouse = await startClickHouse({ firstPort: held })
   try {
-    expect(calls).toBe(2)
     expect(clickhouse.serverUrl).not.toContain(`:${held}`)
     const url = await clickhouse.freshDatabase()
     // restart keeps the fixed port.

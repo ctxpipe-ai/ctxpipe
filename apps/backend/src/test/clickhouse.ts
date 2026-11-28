@@ -67,7 +67,7 @@ export async function knowledgeRowCounts(
 export async function startClickHouse({
   objectStorageCold = false,
   fastPartCleanup = false,
-  hostPort = freePort,
+  firstPort,
 }: {
   /**
    * The disk cold is an object storage disk with its objects in a local
@@ -80,8 +80,8 @@ export async function startClickHouse({
    * (clickhouse-fast-part-cleanup.xml).
    */
   fastPartCleanup?: boolean
-  /** Gives the host port to try next. A test replaces it to force the race. */
-  hostPort?: () => Promise<number>
+  /** The host port to try first. A test gives a taken port to force the race. */
+  firstPort?: number
 } = {}): Promise<{
   serverUrl: string
   /** A new database with the migrated tables. Returns its URL. */
@@ -152,7 +152,7 @@ export async function startClickHouse({
   }
   let port = 0
   for (let attempt = 1; ; attempt++) {
-    port = await hostPort()
+    port = attempt === 1 && firstPort ? firstPort : await freePort()
     try {
       await createAndStart(port)
       break
@@ -236,7 +236,7 @@ export async function startClickHouse({
 }
 
 /** A TCP port on 127.0.0.1 that no process listens on now. */
-export async function freePort(): Promise<number> {
+async function freePort(): Promise<number> {
   const server = createServer()
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address()
