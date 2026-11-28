@@ -105,7 +105,7 @@ function prompt(question: Question, ref: string, document: string): string {
 }
 
 /** The value that more than half of `values` hold, or null. */
-function majority<T>(values: readonly T[]): T | null {
+export function majority<T>(values: readonly T[]): T | null {
   for (const candidate of values)
     if (
       values.filter((value) => value === candidate).length * 2 >

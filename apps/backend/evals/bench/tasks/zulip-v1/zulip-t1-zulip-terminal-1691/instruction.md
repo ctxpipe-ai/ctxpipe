@@ -1,0 +1,3 @@
+Zulip does not allow editing the content of widget messages (such as polls), though stream topics can still be edited. Previously, pressing the edit key on a widget message opened the compose box with message body editing enabled. Which files in the organization's repositories must change to fix this?
+
+Write your answer to `/app/answer.md`. End it with a section `## Files` that lists each file that the change needs, one on each line, as `<repository>:<path>` (the name of the repository and the path from its root). If the sources do not hold the answer, write `NO ANSWER` as the first line, and then say what is missing.

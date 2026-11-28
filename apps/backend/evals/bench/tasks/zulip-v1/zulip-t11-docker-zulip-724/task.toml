@@ -1,0 +1,35 @@
+schema_version = "1.4"
+artifacts = []
+
+[metadata]
+twin = "zulip-v1"
+snapshot = "2026-11-01T00:00:00Z"
+family = "T11"
+split = "holdout"
+base_time = "2026-11-19T16:33:57Z"
+sources_needed = []
+answerable_at_t = false
+lexical_hook = false
+repos = []
+gold_context = []
+gold_urls = []
+grader = "abstention"
+expected_pass_band = [0.5, 0.9]
+events = ["https://github.com/zulip/docker-zulip/pull/724"]
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "shared"
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 900.0
+# No egress in the agent phase: run.py allows only the model gateway and the
+# MCP proxy (CTX arm). The install of Claude Code runs before this phase, with network.
+network_mode = "allowlist"
+allowed_hosts = []
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"

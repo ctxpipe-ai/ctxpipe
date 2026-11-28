@@ -22,6 +22,8 @@
  *     [--cap-usd 1]
  *   bun evals/knowledge/cli.ts latency --out DIR [--runs 50] [--cap-usd 2]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
+ *   bun evals/knowledge/cli.ts orgbench STEP --out FILE|DIR ...
+ *     (the OrgBench task set: ../bench/taskset.ts)
  *
  * See README.md. Exit code 0: done. 1: an error, or (`run`, `rescore`) an
  * answer with a failed call. 2: bad setup. 3: the spend cap stopped the
@@ -30,10 +32,9 @@
  */
 // First: it sets the OpenWorkflow namespace before the client loads.
 import "./eval-namespace.js"
-import { execFile, execFileSync } from "node:child_process"
+import { execFile } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
@@ -43,12 +44,13 @@ import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
+import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
+import { orgbenchTasks } from "../bench/taskset.js"
 import {
-  allowlistSettingsProblem,
-  DEFAULT_OPENROUTER_BASE,
-  providerAllowlist,
-} from "../../src/retrieval/services/openRouterProvider.js"
-import { modelProviderProblem } from "./chat.js"
+  allowlistProblem,
+  buildConverter,
+  modelProviderProblem,
+} from "./chat.js"
 import {
   exportCorpusChat,
   freezeCorpora,
@@ -326,24 +328,6 @@ function storedBaseline(
  * the idle timeout of the Postgres pool (30 s, `src/db/client.ts`).
  */
 const QUIET_MS = 31_000
-
-/** Build the file converter: the export of `factory eval` has no build of it. */
-function buildConverter() {
-  execFileSync(
-    process.execPath,
-    [
-      fileURLToPath(
-        new URL(
-          "../../../../scripts/checks/prerequisites.mjs",
-          import.meta.url,
-        ),
-      ),
-      "converter",
-    ],
-    // Its result line (and the fix of a failure) goes to stderr.
-    { stdio: ["ignore", 2, "inherit"] },
-  )
-}
 
 /**
  * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
@@ -647,6 +631,9 @@ async function corpus(
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
+  // The task set of OrgBench (`../bench/taskset.ts`) has its own options. It
+  // is here so that `factory eval knowledge:orgbench` gives it the model key.
+  if (command === "orgbench") return orgbenchTasks(rest)
   const { values, positionals } = parseArgs({
     args: rest,
     allowPositionals: true,
@@ -685,27 +672,14 @@ export async function main(argv: string[]): Promise<number> {
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
-  // Each eval model call goes only to the providers of the allowlist (ADR-070):
-  // `factory eval` gives the list of production. A command that sends a
-  // model call stops without it, so that no run can forget it.
-  // `probe` checks the list itself, with its own setting (`provider-allowlist`).
+  // `probe` checks the allowlist itself, with its own setting
+  // (`provider-allowlist`).
   if (
     ["draft", "label", "hydrate", "run", "latency", "vision"].includes(
       command ?? "",
     )
   ) {
-    let problem: string | undefined
-    try {
-      problem = providerAllowlist()
-        ? allowlistSettingsProblem({
-            MODEL_PROVIDER: process.env.MODEL_PROVIDER,
-            MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
-            MODEL_PROVIDER_ALLOWLIST: process.env.MODEL_PROVIDER_ALLOWLIST,
-          })
-        : "Set MODEL_PROVIDER_ALLOWLIST: each eval model call goes only to the providers of the allowlist (factory eval gives the list of production)."
-    } catch (error) {
-      problem = (error as Error).message
-    }
+    const problem = allowlistProblem()
     if (problem) throw new SetupError(problem)
   }
   if (command === "label") return label({ ...values, out, capUsd })

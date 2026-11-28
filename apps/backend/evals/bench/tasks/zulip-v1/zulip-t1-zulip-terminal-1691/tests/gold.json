@@ -1,0 +1,26 @@
+{
+  "task": "zulip-t1-zulip-terminal-1691",
+  "family": "T1",
+  "grader": "file-set-f1",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": [
+    "zulip-terminal:tests/ui_tools/test_messages.py",
+    "zulip-terminal:zulipterminal/ui_tools/messages.py"
+  ],
+  "citations": [],
+  "claims": [],
+  "reference": "",
+  "calibration": {
+    "gold": "The answer.\n\n## Files\n\nzulip-terminal:tests/ui_tools/test_messages.py\nzulip-terminal:zulipterminal/ui_tools/messages.py\n",
+    "dump": "## Files\n\nzulip-terminal:tests/ui_tools/test_messages.py\nzulip-terminal:zulipterminal/ui_tools/messages.py\nzulip-terminal:zulipterminal/ui_tools/__init__.py\nzulip-terminal:zulipterminal/ui_tools/boxes.py\nzulip-terminal:zulipterminal/ui_tools/buttons.py\nzulip-terminal:zulipterminal/ui_tools/tables.py\nzulip-terminal:zulipterminal/ui_tools/utils.py\nzulip-terminal:zulipterminal/ui_tools/views.py\n"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "task": "zulip-t1-zulip-40790",
+  "family": "T1",
+  "grader": "file-set-f1",
+  "repos": [
+    "zulip",
+    "zulip-flutter",
+    "zulip-mobile",
+    "zulip-desktop",
+    "zulip-terminal",
+    "python-zulip-api",
+    "docker-zulip",
+    "zulip-architecture"
+  ],
+  "items": [
+    "zulip:web/src/settings_components.ts",
+    "zulip:web/tests/settings_profile_fields.test.cjs"
+  ],
+  "citations": [],
+  "claims": [],
+  "reference": "",
+  "calibration": {
+    "gold": "The answer.\n\n## Files\n\nzulip:web/src/settings_components.ts\nzulip:web/tests/settings_profile_fields.test.cjs\n",
+    "dump": "## Files\n\nzulip:web/src/settings_components.ts\nzulip:web/tests/settings_profile_fields.test.cjs\nzulip:web/.browserslistrc\nzulip:web/.gitignore\nzulip:web/babel.config.js\nzulip:web/debug-require-webpack-plugin.ts\nzulip:web/debug-require.cjs\nzulip:web/e2e-tests/lib/common.ts\nzulip:web/generated/README.md\nzulip:web/html/5xx-cloud.html\nzulip:web/html/5xx.html\nzulip:web/icons/README.md\nzulip:web/icons/account.svg\nzulip:web/icons/alarm-clock.svg\nzulip:web/icons/all-messages.svg\nzulip:web/icons/archive.svg\nzulip:web/icons/arrow-down-left.svg\nzulip:web/icons/arrow-down.svg\nzulip:web/icons/arrow-left-circle.svg\nzulip:web/icons/arrow-left.svg\nzulip:web/icons/arrow-right.svg\nzulip:web/icons/arrow-up-right.svg\n"
+  }
+}

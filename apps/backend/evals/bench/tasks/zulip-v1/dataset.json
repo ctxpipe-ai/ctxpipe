@@ -1,0 +1,293 @@
+{
+  "version": "orgbench-zulip-v1",
+  "twin": "zulip-v1",
+  "snapshot": "2026-11-01T00:00:00Z",
+  "contextRepo": {
+    "url": "https://github.com/ctxpipe-ai/orgbench-zulip-context",
+    "sha": "cd17b29fa2d6358c4abfe722dd6ed9ce0afbf6bd"
+  },
+  "repositories": {
+    "zulip/zulip": "c803cca1ceac58fed390846d4aae5be40e06132d",
+    "zulip/zulip-flutter": "92ebd6d86b27aaea8e7d1227c3c1f3a2082941c1",
+    "zulip/zulip-mobile": "d7cf6da79b4b9467e240b42f24330e97390a8aff",
+    "zulip/zulip-desktop": "308ea3b248badd4664d533afe08427022563536e",
+    "zulip/zulip-terminal": "dedc62d6b96a0302b3b084b0c60abc029e6066ae",
+    "zulip/python-zulip-api": "b172347594a4634517f925f9e30522fe987dbb9c",
+    "zulip/docker-zulip": "916aeb2348c9648ad2271225f54560ae4c31b655",
+    "zulip/zulip-architecture": "71020fdea3ad8d454790d6e7d41d688769a09204"
+  },
+  "models": {
+    "drafter": "anthropic/claude-sonnet-5.5",
+    "panel": [
+      "anthropic/claude-sonnet-5.5",
+      "openai/gpt-6.1-terra",
+      "google/gemini-3.8-flash"
+    ],
+    "probe": "anthropic/claude-sonnet-5.5"
+  },
+  "spentUsd": {
+    "draft": 4.038378000000001,
+    "label": 4.55998625,
+    "probe": 0.7925260000000001,
+    "earlierBuilds": 0.106,
+    "build": 0,
+    "total": 9.49689025
+  },
+  "counts": {
+    "family": {
+      "T1": 4,
+      "T11": 3,
+      "T12": 2
+    },
+    "split": {
+      "holdout": 3,
+      "sealed": 1,
+      "dev": 5
+    }
+  },
+  "dropped": {
+    "draft": 38,
+    "two-sources": 34,
+    "panel": 14,
+    "probe": 29,
+    "oracle": 1,
+    "review": 11,
+    "quota": 7
+  },
+  "tasks": [
+    {
+      "id": "zulip-t1-zulip-40558",
+      "path": "zulip-t1-zulip-40558",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T1",
+      "split": "holdout",
+      "base_time": "2026-11-01T07:49:54Z",
+      "sources_needed": ["repo:zulip", "tracker:zulip"],
+      "answerable_at_t": true,
+      "lexical_hook": true,
+      "repos": ["zulip/zulip"],
+      "gold_context": [
+        "repos/zulip/web/src/util.ts",
+        "repos/zulip/web/tests/util.test.cjs",
+        "github/issues/zulip/zulip/40297.md"
+      ],
+      "gold_urls": [
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/src/util.ts",
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/tests/util.test.cjs",
+        "https://github.com/zulip/zulip/issues/40297"
+      ],
+      "grader": "file-set-f1",
+      "expected_pass_band": [0.3, 0.7],
+      "events": ["https://github.com/zulip/zulip/pull/40558"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0.1667
+      },
+      "probeScore": 0
+    },
+    {
+      "id": "zulip-sealed-390c11a62e99",
+      "family": "T1",
+      "split": "sealed",
+      "sha256": "d270b3083bf24dd1f5ff97b78b8fc45330ce0885ada11063dce03ebdaef93aba"
+    },
+    {
+      "id": "zulip-t1-zulip-terminal-1691",
+      "path": "zulip-t1-zulip-terminal-1691",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T1",
+      "split": "dev",
+      "base_time": "2026-11-25T14:02:38Z",
+      "sources_needed": ["repo:zulip-terminal", "tracker:zulip-terminal"],
+      "answerable_at_t": true,
+      "lexical_hook": false,
+      "repos": ["zulip/zulip-terminal"],
+      "gold_context": [
+        "repos/zulip-terminal/tests/ui_tools/test_messages.py",
+        "repos/zulip-terminal/zulipterminal/ui_tools/messages.py",
+        "github/issues/zulip/zulip-terminal/1573.md",
+        "github/issues/zulip/zulip-terminal/986.md"
+      ],
+      "gold_urls": [
+        "https://github.com/zulip/zulip-terminal/blob/dedc62d6b96a0302b3b084b0c60abc029e6066ae/tests/ui_tools/test_messages.py",
+        "https://github.com/zulip/zulip-terminal/blob/dedc62d6b96a0302b3b084b0c60abc029e6066ae/zulipterminal/ui_tools/messages.py",
+        "https://github.com/zulip/zulip-terminal/issues/1573",
+        "https://github.com/zulip/zulip-terminal/issues/986"
+      ],
+      "grader": "file-set-f1",
+      "expected_pass_band": [0.3, 0.7],
+      "events": ["https://github.com/zulip/zulip-terminal/pull/1691"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0.4
+      },
+      "probeScore": 0
+    },
+    {
+      "id": "zulip-t1-zulip-40790",
+      "path": "zulip-t1-zulip-40790",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T1",
+      "split": "dev",
+      "base_time": "2026-11-23T22:58:59Z",
+      "sources_needed": ["repo:zulip", "tracker:zulip"],
+      "answerable_at_t": true,
+      "lexical_hook": true,
+      "repos": ["zulip/zulip"],
+      "gold_context": [
+        "repos/zulip/web/src/settings_components.ts",
+        "repos/zulip/web/tests/settings_profile_fields.test.cjs",
+        "github/issues/zulip/zulip/29879.md"
+      ],
+      "gold_urls": [
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/src/settings_components.ts",
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/tests/settings_profile_fields.test.cjs",
+        "https://github.com/zulip/zulip/issues/29879"
+      ],
+      "grader": "file-set-f1",
+      "expected_pass_band": [0.3, 0.7],
+      "events": ["https://github.com/zulip/zulip/pull/40790"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0.1667
+      },
+      "probeScore": 0
+    },
+    {
+      "id": "zulip-t11-docker-zulip-724",
+      "path": "zulip-t11-docker-zulip-724",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T11",
+      "split": "holdout",
+      "base_time": "2026-11-19T16:33:57Z",
+      "sources_needed": [],
+      "answerable_at_t": false,
+      "lexical_hook": false,
+      "repos": [],
+      "gold_context": [],
+      "gold_urls": [],
+      "grader": "abstention",
+      "expected_pass_band": [0.5, 0.9],
+      "events": ["https://github.com/zulip/docker-zulip/pull/724"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0
+      },
+      "probeScore": null
+    },
+    {
+      "id": "zulip-t11-zulip-40692",
+      "path": "zulip-t11-zulip-40692",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T11",
+      "split": "dev",
+      "base_time": "2026-11-14T15:06:03Z",
+      "sources_needed": [],
+      "answerable_at_t": false,
+      "lexical_hook": false,
+      "repos": [],
+      "gold_context": [],
+      "gold_urls": [],
+      "grader": "abstention",
+      "expected_pass_band": [0.5, 0.9],
+      "events": ["https://github.com/zulip/zulip/issues/40692"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0
+      },
+      "probeScore": null
+    },
+    {
+      "id": "zulip-t11-chat-9-2556099",
+      "path": "zulip-t11-chat-9-2556099",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T11",
+      "split": "dev",
+      "base_time": "2026-11-18T17:55:19Z",
+      "sources_needed": [],
+      "answerable_at_t": false,
+      "lexical_hook": false,
+      "repos": [],
+      "gold_context": [],
+      "gold_urls": [],
+      "grader": "abstention",
+      "expected_pass_band": [0.5, 0.9],
+      "events": ["https://chat.zulip.org/#narrow/channel/9/near/2556099"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0
+      },
+      "probeScore": null
+    },
+    {
+      "id": "zulip-t12-zulip-40725",
+      "path": "zulip-t12-zulip-40725",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T12",
+      "split": "holdout",
+      "base_time": "2026-11-17T09:03:19Z",
+      "sources_needed": ["repo:zulip"],
+      "answerable_at_t": true,
+      "lexical_hook": false,
+      "repos": ["zulip/zulip"],
+      "gold_context": [
+        "repos/zulip/docs/THIRDPARTY",
+        "repos/zulip/web/icons/reset.svg"
+      ],
+      "gold_urls": [
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/docs/THIRDPARTY",
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/web/icons/reset.svg"
+      ],
+      "grader": "file-set-f1",
+      "expected_pass_band": [0.5, 0.9],
+      "events": ["https://github.com/zulip/zulip/pull/40725"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0.1667
+      },
+      "probeScore": 0
+    },
+    {
+      "id": "zulip-t12-zulip-40637",
+      "path": "zulip-t12-zulip-40637",
+      "twin": "zulip-v1",
+      "snapshot": "2026-11-01T00:00:00Z",
+      "family": "T12",
+      "split": "dev",
+      "base_time": "2026-11-09T17:26:01Z",
+      "sources_needed": ["repo:zulip"],
+      "answerable_at_t": true,
+      "lexical_hook": false,
+      "repos": ["zulip/zulip"],
+      "gold_context": [
+        "repos/zulip/puppet/zulip/templates/postgresql/zulip.conf.template.erb"
+      ],
+      "gold_urls": [
+        "https://github.com/zulip/zulip/blob/c803cca1ceac58fed390846d4aae5be40e06132d/puppet/zulip/templates/postgresql/zulip.conf.template.erb"
+      ],
+      "grader": "file-set-f1",
+      "expected_pass_band": [0.5, 0.9],
+      "events": ["https://github.com/zulip/zulip/pull/40637"],
+      "triad": {
+        "null": 0,
+        "gold": 1,
+        "dump": 0.0909
+      },
+      "probeScore": 0
+    }
+  ]
+}
