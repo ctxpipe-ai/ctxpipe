@@ -19,9 +19,10 @@ import { isKnowledgePath } from "./parse-file.js"
  * source's own time of a file (CTX-1516). 11: the `MENTIONS` links of names
  * in code and of product names (CTX-1579). 12: the document times
  * `created_at`, `updated_at` and `expires_at` (CTX-1710). 13: the case
- * duplicate counts of each head (CTX-1697).
+ * duplicate counts of each head (CTX-1697). 14: the Linear id keys, and the
+ * `PART_OF` and `HAS_LABEL` relations of a Linear issue (CTX-1716).
  */
-export const KNOWLEDGE_PROJECTION_CODE_VERSION = 13
+export const KNOWLEDGE_PROJECTION_CODE_VERSION = 14
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): the
