@@ -10,16 +10,19 @@ import { createOpenRouterDecider } from "@tanstack/ai-openrouter"
 import { z } from "zod"
 
 import { openRouterSettings } from "../services/modelProvider.js"
-import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
+import {
+  decisionModelShape,
+  dropEmptyEnvValues,
+} from "../services/modelTierSpecs.js"
 import { openRouterProvider } from "../services/openRouterProvider.js"
 
 /** The Jev model of the OpenRouter Decisions API, the default decision model. */
 export const JEV_MODEL = "typesafe/jev-1.14"
 
-const decisionProviderSchema = z.enum(["openrouter", "openai", "gemini"])
-
 export type DecisionModel = {
-  provider: z.infer<typeof decisionProviderSchema>
+  provider: NonNullable<
+    z.infer<typeof decisionModelShape.DECISION_MODEL_PROVIDER>
+  >
   model: string
   apiKey: string
   baseUrl?: string
@@ -27,12 +30,7 @@ export type DecisionModel = {
 
 const decisionEnvSchema = z.preprocess(
   dropEmptyEnvValues,
-  z.object({
-    DECISION_MODEL_PROVIDER: decisionProviderSchema.optional(),
-    DECISION_MODEL_NAME: z.string().trim().min(1).optional(),
-    DECISION_MODEL_URL: z.string().url().optional(),
-    DECISION_MODEL_API_KEY: z.string().optional(),
-  }),
+  z.object(decisionModelShape),
 )
 
 /**

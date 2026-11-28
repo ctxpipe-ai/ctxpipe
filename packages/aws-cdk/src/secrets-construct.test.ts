@@ -3,10 +3,14 @@ import { Match, Template } from "aws-cdk-lib/assertions"
 import { describe, expect, it } from "vitest"
 
 import { CtxPipe } from "./ctxpipe"
-import type { CtxPipeConnectorSecretsProps } from "./types"
+import type {
+  CtxPipeConnectorSecretsProps,
+  CtxPipeDecisionModelProps,
+} from "./types"
 
 function synthCtxPipe(
   connectorSecrets?: CtxPipeConnectorSecretsProps,
+  decisionModel?: CtxPipeDecisionModelProps,
 ): Template {
   const app = new cdk.App()
   const stack = new cdk.Stack(app, "TestStack", {
@@ -24,6 +28,7 @@ function synthCtxPipe(
       models: { fast: "openai.gpt-5.5" },
     },
     connectorSecrets,
+    decisionModel,
   })
   return Template.fromStack(stack)
 }
@@ -272,6 +277,86 @@ describe("SecretsConstruct database URL secret", () => {
         ),
       ).toHaveLength(2)
     }
+  })
+})
+
+describe("SecretsConstruct decision model", () => {
+  const containers = (template: Template) =>
+    Object.values(template.findResources("AWS::ECS::TaskDefinition")).flatMap(
+      (definition) =>
+        (
+          definition as {
+            Properties: {
+              ContainerDefinitions: {
+                Name: string
+                Environment?: { Name: string; Value: unknown }[]
+                Secrets?: { Name: string; ValueFrom: unknown }[]
+              }[]
+            }
+          }
+        ).Properties.ContainerDefinitions,
+    )
+
+  it("gives the backend and the worker of a Bedrock install the decision model and its key", () => {
+    const template = synthCtxPipe(undefined, {
+      provider: "gemini",
+      apiKey: cdk.SecretValue.unsafePlainText("gemini-key"),
+      model: "gemini-decision-1",
+    })
+    const secret = findResourceByIdFragment(
+      template.findResources("AWS::SecretsManager::Secret"),
+      "DecisionModelSecret",
+    )
+    expect(secret).toBeDefined()
+    const [secretId] = secret ?? []
+
+    const withDecision = containers(template).filter((container) =>
+      container.Environment?.some(
+        (variable) => variable.Name === "DECISION_MODEL_PROVIDER",
+      ),
+    )
+    expect(withDecision.map((container) => container.Name).sort()).toEqual([
+      "backend",
+      "worker",
+    ])
+    for (const container of withDecision) {
+      expect(container.Environment).toEqual(
+        expect.arrayContaining([
+          { Name: "DECISION_MODEL_PROVIDER", Value: "gemini" },
+          { Name: "DECISION_MODEL_NAME", Value: "gemini-decision-1" },
+        ]),
+      )
+      expect(
+        container.Environment?.some(
+          (variable) => variable.Name === "DECISION_MODEL_URL",
+        ),
+      ).toBe(false)
+      const key = container.Secrets?.find(
+        (variable) => variable.Name === "DECISION_MODEL_API_KEY",
+      )
+      expect(JSON.stringify(key?.ValueFrom)).toContain(`"Ref":"${secretId}"`)
+    }
+  })
+
+  it("sets no decision model setting when decisionModel is not given", () => {
+    const template = synthCtxPipe()
+    expect(
+      findResourceByIdFragment(
+        template.findResources("AWS::SecretsManager::Secret"),
+        "DecisionModelSecret",
+      ),
+    ).toBeUndefined()
+    expect(JSON.stringify(containers(template))).not.toContain("DECISION_MODEL")
+  })
+
+  it("refuses a blank decision model ID", () => {
+    expect(() =>
+      synthCtxPipe(undefined, {
+        provider: "openai",
+        apiKey: cdk.SecretValue.unsafePlainText("key"),
+        model: "  ",
+      }),
+    ).toThrow("decisionModel.model must not be blank")
   })
 })
 

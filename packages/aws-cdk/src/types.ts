@@ -47,6 +47,23 @@ export interface CtxPipeBedrockModelProviderProps {
   readonly models: CtxPipeModelTiers
 }
 
+/**
+ * The decision model of the knowledge plane: the model that answers its
+ * yes/no questions with a probability. Omit it to use Jev on OpenRouter
+ * through an `openai-like` `modelProvider` with the OpenRouter base URL.
+ * Bedrock has no decision model, so a `bedrock` install must set it.
+ */
+export interface CtxPipeDecisionModelProps {
+  /** `openrouter` (Jev), `openai` (or a compatible server) or `gemini`. */
+  readonly provider: "openrouter" | "openai" | "gemini"
+  /** The API key of the decision provider. */
+  readonly apiKey: cdk.SecretValue
+  /** The decision model ID. Default: the default model of the provider. */
+  readonly model?: string
+  /** The base URL, for example of an OpenAI-compatible server. */
+  readonly baseUrl?: string
+}
+
 export type CtxPipeModelProviderProps =
   | CtxPipeOpenAiLikeModelProviderProps
   | CtxPipeBedrockModelProviderProps
@@ -159,6 +176,8 @@ export interface CtxPipeProps {
    */
   readonly orgSlug: string
   readonly modelProvider: CtxPipeModelProviderProps
+  /** The decision model of the knowledge plane (`DECISION_MODEL_*`). */
+  readonly decisionModel?: CtxPipeDecisionModelProps
   readonly customDomain: CtxPipeCustomDomainProps
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps
   /**

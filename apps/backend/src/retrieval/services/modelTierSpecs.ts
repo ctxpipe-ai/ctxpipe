@@ -35,6 +35,21 @@ export const modelNameShape = {
     .default("openai/gpt-6.1-terra"),
 }
 
+/**
+ * The decision model settings of the knowledge plane
+ * (`decisionModelSettings`): the one source for the start check of the
+ * backend and for the decision client. All are optional: with none set, the
+ * decision model is Jev on OpenRouter with the `MODEL_PROVIDER_*` values.
+ */
+export const decisionModelShape = {
+  DECISION_MODEL_PROVIDER: z
+    .enum(["openrouter", "openai", "gemini"])
+    .optional(),
+  DECISION_MODEL_NAME: z.string().trim().min(1).optional(),
+  DECISION_MODEL_URL: z.string().url().optional(),
+  DECISION_MODEL_API_KEY: z.string().min(1).optional(),
+}
+
 const modelNamesSchema = z.preprocess(
   dropEmptyEnvValues,
   z.object(modelNameShape),

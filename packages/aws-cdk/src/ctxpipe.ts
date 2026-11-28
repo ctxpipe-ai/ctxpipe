@@ -25,7 +25,11 @@ import { SandboxHostConstruct } from "./internal/sandbox-host-construct"
 import { SecretsConstruct } from "./internal/secrets-construct"
 import { ServicesConstruct } from "./internal/services-construct"
 import { TaskDefinitionsConstruct } from "./internal/task-definitions-construct"
-import { resolveModelProvider, validateModelProvider } from "./model-provider"
+import {
+  resolveDecisionModel,
+  resolveModelProvider,
+  validateModelProvider,
+} from "./model-provider"
 import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag"
 import type { CtxPipeProps, CtxPipeSize } from "./types"
 
@@ -197,6 +201,8 @@ export class CtxPipe extends Construct {
       props.modelProvider,
       cdk.Stack.of(this).region,
     )
+    const resolvedDecisionModel =
+      props.decisionModel && resolveDecisionModel(props.decisionModel)
     const sizeProfile = this.resolveSizeProfile(props)
     const sandboxHostProfile =
       props.sandboxHost?.enabled === false
@@ -230,6 +236,7 @@ export class CtxPipe extends Construct {
       dataPlane: dataPlane.resources,
       databaseName: defaults.databaseName,
       modelProviderApiKey: resolvedModel.consumerApiKey,
+      decisionModelApiKey: props.decisionModel?.apiKey,
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
@@ -253,6 +260,7 @@ export class CtxPipe extends Construct {
         secrets: secrets.resources,
         customDomain: resolvedCustomDomain,
         resolvedModel,
+        resolvedDecisionModel,
         defaultImageTag: defaults.defaultImageTag,
         sizeProfile,
         otel: props.otel,

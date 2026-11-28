@@ -3,7 +3,10 @@ import * as ecs from "aws-cdk-lib/aws-ecs"
 import * as iam from "aws-cdk-lib/aws-iam"
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 
-import type { CtxPipeModelProviderProps } from "./types"
+import type {
+  CtxPipeDecisionModelProps,
+  CtxPipeModelProviderProps,
+} from "./types"
 
 const DEFAULT_BEDROCK_EMBEDDING_MODEL = "cohere.embed-v4:0"
 const BEDROCK_EMBEDDING_MODEL_PREFIX = "cohere.embed"
@@ -31,6 +34,14 @@ export interface ResolvedModelProviderConfig {
   readonly consumerApiKey?: cdk.SecretValue
   readonly consumerApiKeyBinding?: ModelProviderSecretBinding
   readonly taskRolePolicy?: iam.PolicyStatement
+}
+
+/** The decision model settings, without the key (a secret). */
+export interface ResolvedDecisionModelConfig {
+  readonly provider: CtxPipeDecisionModelProps["provider"]
+  readonly model?: string
+  readonly baseUrl?: string
+  readonly apiKeyBinding?: ModelProviderSecretBinding
 }
 
 interface ModelContainerConfig {
@@ -140,8 +151,22 @@ export function resolveModelProvider(
   }
 }
 
+/** The decision model settings of `props`, checked. */
+export function resolveDecisionModel(
+  props: CtxPipeDecisionModelProps,
+): ResolvedDecisionModelConfig {
+  const model = props.model?.trim()
+  const baseUrl = props.baseUrl?.trim()
+  if (props.model !== undefined && !model)
+    throw new Error("decisionModel.model must not be blank")
+  if (props.baseUrl !== undefined && !baseUrl)
+    throw new Error("decisionModel.baseUrl must not be blank")
+  return { provider: props.provider, model, baseUrl }
+}
+
 export function buildModelContainerConfig(
   resolved: ResolvedModelProviderConfig,
+  decision?: ResolvedDecisionModelConfig,
 ): ModelContainerConfig {
   const environment: Record<string, string> = {
     MODEL_PROVIDER: resolved.provider,
@@ -169,6 +194,17 @@ export function buildModelContainerConfig(
       resolved.consumerApiKeyBinding.secret,
       resolved.consumerApiKeyBinding.field,
     )
+  }
+
+  if (decision) {
+    environment.DECISION_MODEL_PROVIDER = decision.provider
+    if (decision.model) environment.DECISION_MODEL_NAME = decision.model
+    if (decision.baseUrl) environment.DECISION_MODEL_URL = decision.baseUrl
+    if (decision.apiKeyBinding)
+      secrets.DECISION_MODEL_API_KEY = ecs.Secret.fromSecretsManager(
+        decision.apiKeyBinding.secret,
+        decision.apiKeyBinding.field,
+      )
   }
 
   return { environment, secrets }

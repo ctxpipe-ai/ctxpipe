@@ -114,6 +114,24 @@ new CtxPipe(stack, "CtxPipe", {
 });
 ```
 
+#### Decision model of the knowledge plane
+
+The knowledge plane needs a decision model: a model that answers yes/no questions with a probability. Bedrock has no decision model, so a Bedrock install must set `decisionModel`. An `openai-like` install that uses the OpenRouter base URL can omit it: then the decision model is Jev on OpenRouter, with the key of `modelProvider`.
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider (kind: "bedrock")
+  decisionModel: {
+    provider: "gemini", // "openrouter" | "openai" | "gemini"
+    apiKey: cdk.SecretValue.secretsManager("ctxpipe/decision-model-api-key"),
+    model: "gemini-decision-1", // optional; the default model of the provider
+    // baseUrl: optional, for example of an OpenAI-compatible server
+  },
+});
+```
+
+The construct keeps the key in its own Secrets Manager secret. It gives the backend and the worker `DECISION_MODEL_PROVIDER`, `DECISION_MODEL_NAME`, `DECISION_MODEL_URL` and `DECISION_MODEL_API_KEY`. The [model configuration](/docs/self-hosting/models#decision-model) page tells the providers and their default models.
+
 ### 4) Run CDK deploy
 
 **OpenAI-like:**
@@ -198,6 +216,7 @@ pipeline.
 | `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector or ClickStack. |
 | `sandboxHost` | The [chat sandbox host](#chat-sandbox-host): `instanceType`, `dockerVolumeSizeGiB` (a whole number, at least 20), `agentVaultNetworkAllowlist` for a [private git server](#private-git-servers), and `enabled`. The host is on by default. `enabled: false` creates no host, and turns chat off. |
 | `connectorSecrets` | Deployment-wide connector credentials. See [Optional connector secrets](#optional-connector-secrets). |
+| `decisionModel` | The decision model of the knowledge plane: `provider`, `apiKey`, and optional `model` and `baseUrl`. A Bedrock install must set it. See [Decision model of the knowledge plane](#decision-model-of-the-knowledge-plane). |
 
 ### `modelProvider` union
 

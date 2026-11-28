@@ -340,7 +340,7 @@ factory eval knowledge:latency --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-
 bun --env-file=.env.local evals/knowledge/cli.ts latency --out "$TMPDIR/knowledge-latency" [--runs 50] [--cap-usd 2]
 ```
 
-The time budget of a plane search (`timeBudgetMs`) must fit the latency of its model calls. This command measures them for a decision on the budget. It sends one fixed public question, and one call at a time, so that each latency is the latency of one request. The Jev measure goes through the real client: a Jev call with no answer after 700 ms sends a second copy of its request, as in production ([CTX-1590](https://linear.app/ctxpipe/issue/CTX-1590)). Each call goes only to a ZDR endpoint of a provider of the allowlist (ADR-068 decision 7, ADR-070). It measures only the endpoints of the allowed providers.
+The time budget of a plane search (`timeBudgetMs`) must fit the latency of its model calls. This command measures them for a decision on the budget. It sends one fixed public question, and one call at a time, so that each latency is the latency of one request. The decision-model measure goes through the real client, with the decision model of the settings (Jev on OpenRouter by default): a decision call with no answer after 700 ms sends a second copy of its request, as in production ([CTX-1590](https://linear.app/ctxpipe/issue/CTX-1590)). Each call to OpenRouter goes only to a ZDR endpoint of a provider of the allowlist (ADR-068 decision 7, ADR-070), and it measures only the endpoints of the allowed providers. A call to another decision provider (OpenAI or Gemini) gets no OpenRouter routing.
 
 | Measure | What it sends |
 | --- | --- |

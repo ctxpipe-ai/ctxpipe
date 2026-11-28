@@ -39,17 +39,28 @@ export class TaskDefinitionsConstruct extends Construct {
     super(scope, id)
 
     const appUrl = `https://${props.customDomain.domainName}`
-    const modelContainerConfig = buildModelContainerConfig({
-      ...props.resolvedModel,
-      ...(props.secrets.modelProviderSecret
-        ? {
-            consumerApiKeyBinding: {
-              secret: props.secrets.modelProviderSecret,
-              field: "API_KEY",
-            },
-          }
-        : {}),
-    })
+    const decisionModelSecret = props.secrets.decisionModelSecret
+    const modelContainerConfig = buildModelContainerConfig(
+      {
+        ...props.resolvedModel,
+        ...(props.secrets.modelProviderSecret
+          ? {
+              consumerApiKeyBinding: {
+                secret: props.secrets.modelProviderSecret,
+                field: "API_KEY",
+              },
+            }
+          : {}),
+      },
+      props.resolvedDecisionModel && {
+        ...props.resolvedDecisionModel,
+        ...(decisionModelSecret
+          ? {
+              apiKeyBinding: { secret: decisionModelSecret, field: "API_KEY" },
+            }
+          : {}),
+      },
+    )
 
     const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? ""
     if (props.otel && !otelEndpoint) {
@@ -375,6 +386,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.runtimeDatabaseUrlSecret,
       props.secrets.clickhouseReaderUrlSecret,
       props.secrets.modelProviderSecret,
+      props.secrets.decisionModelSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
       otelHeadersSecret,
@@ -384,6 +396,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.runtimeDatabaseUrlSecret,
       props.secrets.clickhouseWriterUrlSecret,
       props.secrets.modelProviderSecret,
+      props.secrets.decisionModelSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
       otelHeadersSecret,

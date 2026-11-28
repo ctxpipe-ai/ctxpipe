@@ -465,6 +465,36 @@ describe("the spend cap", () => {
     }
   })
 
+  it("counts a Gemini decision call at the price of its input tokens", async () => {
+    const decisions =
+      "https://generativelanguage.googleapis.com/v1beta/decisions"
+    server.use(
+      http.post(decisions, () =>
+        HttpResponse.json({
+          model: "gemini-decision-1",
+          answers: { a: { type: "noul", noul: 0.5 } },
+          usage: {
+            total_input_tokens: 30_000,
+            total_output_tokens: 0,
+            total_tokens: 30_000,
+          },
+        }),
+      ),
+    )
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      await post(decisions, { input: "[]", questions: { a: {} } })
+      expect(calls.end()).toMatchObject({ jev: 1, jevQuestions: 1 })
+      // 30,000 input tokens at $0.10 for each million.
+      expect(calls.spentUsd).toBeCloseTo(0.003)
+      expect(calls.records[0]).toMatchObject({ kind: "jev", estimated: false })
+    } finally {
+      restore()
+    }
+  })
+
   it("reserves a large decision call by the size of its body", async () => {
     sent = 0
     const calls = new ModelCalls(BASE, 0.005)

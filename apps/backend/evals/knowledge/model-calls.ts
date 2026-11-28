@@ -204,18 +204,29 @@ const questionsOf = (body: string): number =>
   ).length
 
 /**
- * The price of the OpenAI decision model for each input token ($0.10 for
- * each million, no charge for output; read 2026-11-26). Its answers report
- * tokens but no cost. Jev costs less ($0.042), so the reservation of a
- * decision call also holds for Jev.
+ * The price of the OpenAI and the Gemini decision models for each input
+ * token ($0.10 for each million, no charge for output; read 2026-11-26 and
+ * 2026-11-28). Their answers report tokens but no cost. Jev costs less
+ * ($0.042), so the reservation of a decision call also holds for Jev.
  */
 const DECISION_USD_PER_INPUT_TOKEN = 0.1 / 1_000_000
 
-/** The cost of a decision answer from its input tokens, when it has them. */
+/**
+ * The cost of a decision answer from its input tokens, when it has them.
+ * OpenAI reports `input_tokens`, Gemini `total_input_tokens`.
+ */
 function decisionTokenCost(usage: unknown): number | undefined {
-  const input = z.object({ input_tokens: z.number() }).safeParse(usage)
-    .data?.input_tokens
-  return input === undefined ? undefined : input * DECISION_USD_PER_INPUT_TOKEN
+  const tokens = z
+    .union([
+      z.object({ input_tokens: z.number() }).transform((u) => u.input_tokens),
+      z
+        .object({ total_input_tokens: z.number() })
+        .transform((u) => u.total_input_tokens),
+    ])
+    .safeParse(usage).data
+  return tokens === undefined
+    ? undefined
+    : tokens * DECISION_USD_PER_INPUT_TOKEN
 }
 
 /**

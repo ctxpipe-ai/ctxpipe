@@ -254,6 +254,14 @@ export class SecretsConstruct extends Construct {
         })
       : undefined
 
+    const decisionModelSecret = props.decisionModelApiKey
+      ? new secretsmanager.Secret(this, "DecisionModelSecret", {
+          secretObjectValue: {
+            API_KEY: props.decisionModelApiKey,
+          },
+        })
+      : undefined
+
     const sesIdentity = new ses.EmailIdentity(this, "SesIdentity", {
       // The hosted zone passed to CtxPipe is expected to be public.
       identity: ses.Identity.publicHostedZone(
@@ -581,6 +589,7 @@ export class SecretsConstruct extends Construct {
       databaseUrlWriter,
       runtimeDatabaseUrlWriter,
       modelProviderSecret,
+      decisionModelSecret,
       smtpSecret,
       connectorSecret,
       connectorEnv,

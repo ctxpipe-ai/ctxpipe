@@ -3,6 +3,7 @@ export type {
   CtxPipeBedrockModelProviderProps,
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,
+  CtxPipeDecisionModelProps,
   CtxPipeModelProviderProps,
   CtxPipeModelTiers,
   CtxPipeOpenAiLikeModelProviderProps,

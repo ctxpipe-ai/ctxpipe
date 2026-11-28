@@ -12,7 +12,10 @@ import type * as route53 from "aws-cdk-lib/aws-route53"
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import type { IDependable } from "constructs"
 
-import type { ResolvedModelProviderConfig } from "../model-provider"
+import type {
+  ResolvedDecisionModelConfig,
+  ResolvedModelProviderConfig,
+} from "../model-provider"
 import type {
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,
@@ -126,6 +129,7 @@ export interface SecretsResources {
   /** Writes the runtime `ctxpipe_app` URL; must run after migrate. */
   readonly runtimeDatabaseUrlWriter: cdk.CustomResource
   readonly modelProviderSecret?: secretsmanager.Secret
+  readonly decisionModelSecret?: secretsmanager.Secret
   readonly smtpSecret: secretsmanager.Secret
   readonly connectorSecret?: secretsmanager.Secret
   readonly connectorEnv: Record<string, ecs.Secret>
@@ -216,6 +220,8 @@ export interface SecretsConstructProps {
   readonly databaseName: string
   /** OpenAI-like model provider only; Bedrock uses IAM on the task role. */
   readonly modelProviderApiKey?: cdk.SecretValue
+  /** The key of the decision model, when `decisionModel` is set. */
+  readonly decisionModelApiKey?: cdk.SecretValue
   readonly hostedZone: route53.IHostedZone
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps
   readonly emailFromAddress: string
@@ -237,6 +243,7 @@ export interface TaskDefinitionsConstructProps {
   readonly secrets: SecretsResources
   readonly customDomain: ResolvedCtxPipeCustomDomainProps
   readonly resolvedModel: ResolvedModelProviderConfig
+  readonly resolvedDecisionModel?: ResolvedDecisionModelConfig
   readonly defaultImageTag: string
   readonly sizeProfile: CtxPipeSizeProfile
   readonly otel?: CtxPipeOtelProps

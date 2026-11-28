@@ -1,6 +1,9 @@
 import { z } from "zod"
 
-import { modelNameShape } from "../retrieval/services/modelTierSpecs.js"
+import {
+  decisionModelShape,
+  modelNameShape,
+} from "../retrieval/services/modelTierSpecs.js"
 import { allowlistSettingsProblem } from "../retrieval/services/openRouterProvider.js"
 
 /**
@@ -173,14 +176,9 @@ const envSchema = z
     MODEL_PROVIDER_ALLOWLIST: z.string().optional(),
     /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-    // The decision model of the knowledge plane (`decisionModelSettings`).
-    // Unset: Jev on OpenRouter with the MODEL_PROVIDER_* values.
-    DECISION_MODEL_PROVIDER: z
-      .enum(["openrouter", "openai", "gemini"])
-      .optional(),
-    DECISION_MODEL_NAME: z.string().optional(),
-    DECISION_MODEL_URL: z.string().url().optional(),
-    DECISION_MODEL_API_KEY: z.string().min(1).optional(),
+    // The decision model of the knowledge plane. A bad value stops the
+    // backend at start.
+    ...decisionModelShape,
 
     // OpenTelemetry (traces, logs, metrics)
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),

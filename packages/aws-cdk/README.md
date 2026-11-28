@@ -53,6 +53,24 @@ Before deploy, enable each model ID in the [Amazon Bedrock console](https://cons
 
 **Embeddings on Bedrock:** The backend only supports **Cohere** embed models on Bedrock (Cohere request/response format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. The CDK construct validates this at synth/deploy time and rejects non-Cohere `models.embedding` values (for example chat model IDs or Titan IDs).
 
+### Decision model (knowledge plane)
+
+The knowledge plane needs a decision model: a model that answers yes/no questions with a probability. Bedrock has no decision model, so a Bedrock install must set `decisionModel`. An `openai-like` install with the OpenRouter base URL can omit it: then the decision model is Jev on OpenRouter, with the key of `modelProvider`.
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider (kind: "bedrock")
+  decisionModel: {
+    provider: "gemini", // "openrouter" | "openai" | "gemini"
+    apiKey: cdk.SecretValue.secretsManager("ctxpipe/decision-model-api-key"),
+    model: "gemini-decision-1", // optional; the default model of the provider
+    // baseUrl: optional, for example of an OpenAI-compatible server
+  },
+});
+```
+
+The construct keeps the key in its own Secrets Manager secret (`DecisionModelSecret`). It gives the backend and the worker `DECISION_MODEL_PROVIDER`, `DECISION_MODEL_NAME`, `DECISION_MODEL_URL` and `DECISION_MODEL_API_KEY`.
+
 ## Model provider
 
 `modelProvider` is a discriminated union:
