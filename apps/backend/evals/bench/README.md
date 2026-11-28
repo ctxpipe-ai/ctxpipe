@@ -29,7 +29,7 @@ A task is a Harbor task folder: `instruction.md` (the question), `environment/Do
 | `repos` | The repositories of the gold evidence, as `owner/name`. Their count is a stratum (1, 2, 3+). |
 | `gold_context` | The gold files, as paths in the B1+ corpus (`repos/<name>/<path>`, `github/issues/…`, `github/pulls/…`, `chat/…`), each with an optional line range (`#L10-80`, or one line `#L42`). The ORACLE arm gets these files in its prompt. `run.py` refuses a path that is not in the corpus, also through a link. The recorder also uses them for the failure class: a run "saw" a gold file when a tool call named it or returned it. |
 
-`task.toml` must set `[agent] network_mode = "allowlist"` and `allowed_hosts = []`; `run.py` refuses another task. The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
+`task.toml` must set `[agent] network_mode = "allowlist"`, `allowed_hosts = []` and `[verifier] network_mode = "no-network"`; `run.py` refuses another task. The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
 
 ## The arms
 
@@ -123,7 +123,7 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 
 `analyze.py` writes `report.json` and `report.md`. For each model and corpus size, it gives:
 
-- for each arm: the mean continuous score, pass@1, pass^k (k is the smallest count of trials of a task), $/task, $/success, the mean tokens, the wall time and the turns;
+- for each arm: the mean continuous score, pass@1 (the first trial of each task), pass^k (each of the first k trials passes; k is the smallest count of trials of a task), $/task (the mean cost of one run), $/success, the mean tokens, the wall time and the turns;
 - the paired delta of each arm against B1+: the mean over the tasks of the difference of the mean trial scores, with a 95% bootstrap interval over the tasks, and the strata by `family`, `lexical_hook` and repository count;
 - the process of the CTX arm: the MCP calls and their share of the tool calls, the tasks with no MCP call, the argument errors and their rate, the runs with an own-service error, the server tools, the Jev calls, the D5 counts, and the served snapshots (two SHAs of the Workspace branch mean that the snapshot changed during the runs);
 - the failure class of each failed run: own-service error, infra (an infrastructure error that did not run again), tool not used (a CTX run with no MCP call), reasoning with gold seen (the run saw a gold file, or the arm is ORACLE), bad args (an argument error and no gold file seen), or retrieval miss.

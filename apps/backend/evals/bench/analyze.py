@@ -69,9 +69,11 @@ def arm_summary(runs, pass_at, arm):
         "runs": len(runs),
         "tasks": len(by_task),
         "score": mean(r["score"] for r in runs),
-        "pass@1": mean(passes),
-        f"pass^{k}": mean(all(r["score"] >= pass_at for r in rs[:k]) for rs in by_task.values()),
-        "usdPerTask": round(cost / len(by_task), 4),
+        # pass@1 reads the first trial of each task; pass^k needs each of the first k trials to pass.
+        "pass@1": mean(min(rs, key=lambda r: r["trial"])["score"] >= pass_at for rs in by_task.values()),
+        f"pass^{k}": mean(all(r["score"] >= pass_at for r in sorted(rs, key=lambda r: r["trial"])[:k]) for rs in by_task.values()),
+        # The mean cost of one run of one task.
+        "usdPerTask": round(cost / len(runs), 4),
         "usdPerSuccess": round(cost / sum(passes), 4) if any(passes) else None,
         "usdTotal": round(cost, 4),
         "tokens": {t: mean(r["tokens"][t] for r in runs) for t in ("input", "output", "cacheRead", "cacheWrite")},

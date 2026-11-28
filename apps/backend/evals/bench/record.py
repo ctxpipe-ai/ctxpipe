@@ -75,7 +75,7 @@ def hyperdx(tool, arguments):
     request = urllib.request.Request("https://hyperdx.ctxpipe.dev/api/mcp", json.dumps(body).encode(), headers)
     with urllib.request.urlopen(request, timeout=120) as response:
         text = response.read().decode()
-    data = json.loads(next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text)
+    data = mcp_reply(text)
     content = data["result"]["content"][0]["text"]
     if data["result"].get("isError"):
         raise RuntimeError(content)
@@ -198,6 +198,11 @@ def run_key(run):
     return (run["model"], run["arm"], run["task"], run["trial"], run["repos"])
 
 
+def mcp_reply(text):
+    """The JSON-RPC message of an MCP reply: server-sent events or plain JSON."""
+    return json.loads(next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text)
+
+
 def workspace_snapshot(mcp_url, key, org, workspace):
     """The `branch@sha` that the Workspace serves now: `list_files` of the root names it (`served`)."""
     headers = {"x-api-key": key, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "User-Agent": "orgbench-runner/1"}
@@ -205,7 +210,7 @@ def workspace_snapshot(mcp_url, key, org, workspace):
     try:
         with urllib.request.urlopen(urllib.request.Request(mcp_url, json.dumps(body).encode(), headers), timeout=60) as response:
             text = response.read().decode()
-        data = json.loads(next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text)
+        data = mcp_reply(text)
         match = SERVED.search(" ".join(c.get("text", "") for c in data["result"]["content"]))
     except (OSError, ValueError, KeyError, StopIteration) as error:
         return f"error: {error}"

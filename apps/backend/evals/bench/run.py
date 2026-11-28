@@ -58,10 +58,11 @@ def gold_context(task_dir, corpus_dir):
 
 
 def check_task(task_dir):
-    """A task must give the agent phase no egress: run.py adds only the sidecars (README.md)."""
-    agent = task_config(task_dir).get("agent", {})
-    if agent.get("network_mode") != "allowlist" or agent.get("allowed_hosts"):
-        raise SystemExit(f"{task_dir.name}: task.toml must set [agent] network_mode = \"allowlist\" and allowed_hosts = []")
+    """A task must give the agent and the verifier no egress: run.py adds only the sidecars to the agent (README.md)."""
+    config = task_config(task_dir)
+    agent, verifier = config.get("agent", {}), config.get("verifier", {})
+    if agent.get("network_mode") != "allowlist" or agent.get("allowed_hosts") or verifier.get("network_mode") != "no-network":
+        raise SystemExit(f'{task_dir.name}: task.toml must set [agent] network_mode = "allowlist", allowed_hosts = [] and [verifier] network_mode = "no-network"')
 
 
 def preamble(config, twin, arm):
@@ -225,7 +226,7 @@ def main():
                 for arm_name in arms:
                     arm = config["arms"][arm_name]
                     for trial in range(1, arm.get("trials", args.trials) + 1):
-                        if (model_name, arm_name, task, trial, repos) in done:
+                        if run_key({"model": model_name, "arm": arm_name, "task": task, "trial": trial, "repos": repos}) in done:
                             continue
                         cache_path = None
                         if not arm["mcp"]:
