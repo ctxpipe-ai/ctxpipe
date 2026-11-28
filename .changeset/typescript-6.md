@@ -3,4 +3,4 @@
 "ctxpipe": patch
 ---
 
-Build the package with TypeScript 6.
+improvement: Build the package with TypeScript 6.

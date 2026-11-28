@@ -2,7 +2,7 @@
 "@ctxpipe/aws-cdk": minor
 ---
 
-The new knowledge store (ClickHouse) is on for each organization. You do not do a step to turn it on: the `knowledge_plane` organization setting is removed. After the deploy, the worker indexes each Workspace in ClickHouse. When the index of a Workspace is complete, chat and MCP read that Workspace from the new knowledge store. Until then, the old knowledge store answers. On our hosted service, the first index of a Workspace took about 3 minutes at the median, and up to about 30 minutes for a large Workspace. The chat composer of each organization now shows the base branch picker.
+feature: The new knowledge store (ClickHouse) is on for each organization. You do not do a step to turn it on: the `knowledge_plane` organization setting is removed. After the deploy, the worker indexes each Workspace in ClickHouse. When the index of a Workspace is complete, chat and MCP read that Workspace from the new knowledge store. Until then, the old knowledge store answers. On our hosted service, the first index of a Workspace took about 3 minutes at the median, and up to about 30 minutes for a large Workspace. The chat composer of each organization now shows the base branch picker.
 
 The index runs and the searches send Workspace text, images and questions to three models on OpenRouter: the embedding model `openai/text-embedding-3-large`, the image model, and the decision model (Jev), each with zero data retention.
 

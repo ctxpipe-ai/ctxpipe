@@ -2,7 +2,7 @@
 "ctxpipe": minor
 ---
 
-A repository that you set up with CLI 0.2.0 now repairs its memory setup at the next agent session. You do not have to do a step.
+fix: A repository that you set up with CLI 0.2.0 now repairs its memory setup at the next agent session. You do not have to do a step.
 
 CLI 0.3.0 removed the commands `memory mcp` and `memory hook`. The hooks and MCP entries of CLI 0.2.0 still call them. Thus these hooks failed at each session start and stop, and memory capture stopped.
 

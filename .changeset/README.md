@@ -14,6 +14,28 @@ CI runs `changeset status` on pull requests and fails when a versionable workspa
 
 Use an **empty** changeset (only the two `---` lines, no text) for a change that an operator does not see or act on: CI, workflows, scripts, tests, types, telemetry, internal refactors, agent instructions, and docs. Do not use an empty changeset for an operator-visible change.
 
+## Kind
+
+A changeset that names a package starts its summary with a kind tag. The release notes list the changes in three groups by kind.
+
+| Tag | Use it for |
+|-----|------------|
+| `feature: ` | A new capability: a new connector, prop, page, tool, or command |
+| `improvement: ` | A change that makes an existing capability better: speed, quality, text, layout, or a dependency update |
+| `fix: ` | A correction of a defect: something that failed or gave a wrong result |
+
+Add `!` before the colon for a breaking change, for example `fix!: `. A breaking change needs an action from the operator or the user. A major bump is also breaking. With `pnpm changeset`, type the tag at the start of the summary prompt. An empty changeset has no kind. The changeset guard fails for a changeset that names a package and has no kind ([ADR-020](../.ai/memory/decisions/ADR-020-changeset-ci-guard-policy.md), item 7).
+
+Example:
+
+```md
+---
+"@ctxpipe/aws-cdk": patch
+---
+
+fix: The sandbox host starts again after a reboot.
+```
+
 App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changeset picker — **do not select them**. Apps are not published to npm; for app-only work, include only **`@ctxpipe/aws-cdk`** in the changeset.
 
 ## Release flow

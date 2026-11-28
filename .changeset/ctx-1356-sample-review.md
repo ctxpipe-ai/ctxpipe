@@ -2,7 +2,7 @@
 "@ctxpipe/aws-cdk": patch
 ---
 
-UI fixes from the review of a sample of the stories:
+improvement: UI fixes from the review of a sample of the stories:
 
 - Quiet buttons, and the email and organization under the names in the side nav, are easier to read.
 - A toast that confirms an action or reports an error has a dark surface, with the color only on its icon.

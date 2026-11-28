@@ -189,7 +189,7 @@ Test through the module's public interface with its real collaborators. Fake the
 ## Package releases
 
 - Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
-- Every PR carries a changeset; an internal change gets an empty one ([ADR-020](.ai/memory/decisions/ADR-020-changeset-ci-guard-policy.md), item 5).
+- Every PR carries a changeset; an internal change gets an empty one. A non-empty one starts its summary with `feature: `, `improvement: ` or `fix: ` ([ADR-020](.ai/memory/decisions/ADR-020-changeset-ci-guard-policy.md), items 5 and 7).
 - Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
-- `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
+- `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `packages/aws-cdk/scripts/stamp-image-tag.mjs` (`IMAGE_TAG`, `GITHUB_SHA`, the `main` SHA, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
