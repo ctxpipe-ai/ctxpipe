@@ -27,9 +27,9 @@ A task is a Harbor task folder: `instruction.md` (the question), `environment/Do
 | `family` | The task family (`T1`, `T3`, `T4`, `T8a`, `T10a`, `T11`, `T12`): a stratum of the report. |
 | `lexical_hook` | `true` or `false`: a stratum of the report (ADR-075 decision 4). |
 | `repos` | The repositories of the gold evidence, as `owner/name`. Their count is a stratum (1, 2, 3+). |
-| `gold_context` | The gold files, as paths in the B1+ corpus (`repos/<name>/<path>`, `github/issues/…`, `github/pulls/…`, `chat/…`), each with an optional line range `#L10-80`. The ORACLE arm gets these files in its prompt. The recorder also uses them for the failure class: a run "saw" a gold file when a tool call named it or returned it. |
+| `gold_context` | The gold files, as paths in the B1+ corpus (`repos/<name>/<path>`, `github/issues/…`, `github/pulls/…`, `chat/…`), each with an optional line range (`#L10-80`, or one line `#L42`). The ORACLE arm gets these files in its prompt. `run.py` refuses a path that is not in the corpus, also through a link. The recorder also uses them for the failure class: a run "saw" a gold file when a tool call named it or returned it. |
 
-The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
+`task.toml` must set `[agent] network_mode = "allowlist"` and `allowed_hosts = []`; `run.py` refuses another task. The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
 
 ## The arms
 
@@ -41,11 +41,11 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 | `ctx` | Empty. | The ctxpipe MCP of production (decision D4) at `http://ctxpipe-mcp-proxy/mcp`. The bench Workspace serves the context repo after the ctxpipe ingest, so its SHA is not the SHA of the B1+ corpus. Each CTX record names the SHA that it read (`served`), and the report shows it for each run. |
 | `oracle` | Empty. The `gold_context` files of the task follow the preamble. One trial. | None. |
 
-`corpus.py` builds the B1+ corpus from the plan of the twin (`../knowledge/fixtures/orgbench-zulip-v1.plan.json`) and the frozen context repo (`ctxpipe-ai/orgbench-zulip-context` at the SHA in `arms.json`). It reads the context repo through the `gh` login. It fetches each tree one time into `~/.cache/ctxpipe-bench/corpus/trees/`, and builds each corpus size as a view of hard links in `~/.cache/ctxpipe-bench/corpus/views/`.
+`corpus.py` builds the B1+ corpus from the plan of the twin (`../knowledge/fixtures/orgbench-zulip-v1.plan.json`) and the frozen context repo (`ctxpipe-ai/orgbench-zulip-context` at the SHA in `arms.json`). It reads the context repo through the `gh` login. It fetches each tree one time into `~/.cache/ctxpipe-bench/corpus/trees/`, and builds each corpus size as a view of hard links in `~/.cache/ctxpipe-bench/corpus/views/`. The name of a view holds a hash of its snapshot (each repository as `source@sha`, and the context repo), so a changed pin builds a new view. `run.py` builds the corpus only for a B1+ or ORACLE run that is not in the cache.
 
 ### The scale sweep
 
-`run.py --repos N` (and `corpus.py --repos N`) mounts N repositories in the B1+ arm (plan §4.2). A size above the count of the plan adds the first distractor repositories of `distractors.json`: 192 public repositories of 18 other orgs (chat, video call and collaboration software, so that they are near the Zulip text), each at the last commit of its default branch before T. A size below the count of the plan keeps the first repositories of the plan (for 5: `zulip`, `zulip-flutter`, `zulip-mobile`, `zulip-desktop`, `zulip-terminal`). Thus pick the sweep tasks from the tasks whose repositories are in the first five. Each repository has the folder `repos/<name>`, with no owner, so that the path does not show which repositories are distractors. The sweep changes only the B1+ arm: the CTX arm at 50 or 200 repositories needs a bench Workspace that indexes the distractors.
+`run.py --repos N` (and `corpus.py --repos N`) mounts N repositories in the B1+ arm (plan §4.2). A size above the count of the plan adds the first distractor repositories of `distractors.json`: 192 public repositories of 18 other orgs (chat, video call and collaboration software, so that they are near the Zulip text), each at the last commit of its default branch before T. A size below the count of the plan keeps the first repositories of the plan (for 5: `zulip`, `zulip-flutter`, `zulip-mobile`, `zulip-desktop`, `zulip-terminal`). Thus pick the sweep tasks from the tasks whose repositories are in the first five. Each repository has the folder `repos/<name>`, with no owner, so that the path does not show which repositories are distractors. The sweep changes only the B1+ arm, so `run.py` refuses `--repos` with another arm: the CTX arm at 50 or 200 repositories needs a bench Workspace that indexes the distractors.
 
 ## The CTX arm
 
@@ -60,9 +60,7 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 - At most `maxToolCalls` (120) tool calls in a run. The next tool call gets 429 from the proxy.
 - One JSON-RPC message in each request: a batch gets 400. The body is at most 64 KiB.
 - It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`), so that a client cannot stop the sampling of the server spans.
-- It writes `mcp/<run>/calls.json`: the forwarded tool calls, the HTTP status of each response of the server, the timeouts (300 s) and the connection errors, and the refused calls.
-
-A probe of the proxy against production gave these results: `initialize` with no client key gave 200, a false client key gave 200 (the proxy replaced it), `get_related` gave 403, a batch gave 400, another path and the encoded path above gave 404, and the call above the cap gave 429. A scan of the run folders of the proof found no copy of the bench key or the model key.
+- It writes `mcp/<run>/calls.json`: the forwarded tool calls, the tool calls that the server answered with 2xx, the HTTP status of each response of the server, the timeouts (300 s) and the connection errors, and the refused calls.
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
@@ -72,7 +70,7 @@ The recorder reads the server spans of each CTX run from HyperDX (`DeploymentEnv
 
 - the traces of the run have no span with `db.system.name = falkordb` (or "falkor" in the span name);
 - HyperDX has no `knowledge_plane.fallback` log of the bench org (`ctxpipe.org.slug`) or of the traces of the run, during the run;
-- the traces have one `mcp.tool` span for each tool call that the proxy forwarded, less the calls that the MCP SDK refused for bad arguments (those calls have no span).
+- the traces have one `mcp.tool` span for each tool call that the server answered with 2xx, less the calls that the MCP SDK refused for bad arguments (those calls have no span). A call that failed with a 5xx, a 429 or a timeout is an own-service error, not a missing span.
 
 The analyzer leaves out an invalid run, and lists it with its reasons. The record also holds `clickhouseSpans` and `jevCalls`, which show that the plane answered. The recorder waits up to five minutes for the spans of the run, because the backend exports spans in batches. The bench org is shared production, so the fallback check also counts a fallback of the bench org that does not come from the run.
 
@@ -86,8 +84,6 @@ The agent can run Bash, and text in the corpus can tell it to send model request
 - Before it forwards a request, it reserves the worst cost of the request: each byte of the body as one input token (a token is at least one byte) at the highest input price (a cache write), 5,000 tokens for each image, and `max_tokens` at the output price. It sets `max_tokens` to at most 16,000. When the spend of the run and the reserve are more than the cap of the run (`runCapUsd`), it refuses the request with 402. It sends one request at a time.
 - After the response, it reads the `usage` of the response (also a streamed response), and charges it at the list price of the model (`pricesUsdPerMTok` in `arms.json`, with the long-context price of Haiku above 100,000 tokens). When the client goes before the end, it reads the response to the end. When a response of 200 has no full usage, it charges the reserve. An error response with no usage costs nothing. Thus the spend of a run can never go over its cap.
 - It writes the spend of the run to `gateway/<run>/spend.json` in the run folder. The recorder uses that total as the agent spend, because it also counts a model request that did not come from Claude Code.
-
-The spike probed the gateway (CTX-1660, PR #1129): no environment variable, process environment or file of a task container had the model key, the model hosts sent no answer, and each gateway total was equal to the Claude Code `total_cost_usd` and to the change of the upstream spend of the key.
 
 ## The environment of Harbor
 
@@ -112,7 +108,8 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`). `run.py` writes the report at the end; `analyze.py` writes it again, for example with another pass threshold.
 - Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The server calls of a CTX run (a query embedding and about two Jev calls for each search) have no dollar cap of their own: the proxy limits their count, and the CTX reserve ($0.12) is an estimate. The recorded server spend (`gen_ai.usage.cost` of the spans of the run) counts in the spend.
-- A run with an infrastructure error (a harness crash, no result event, no reward, or a model API error) runs again, at most three attempts. An error of the arm's own service (a 5xx, a 429 or a timeout of the MCP server, or a tool error `internal`, `too_many_requests`, `judge_unavailable` or `workspace_not_ready`) does not run again: the run fails with score 0 (ADR-075 decision 7). A run that stops at its turn, time or dollar limit fails the task.
+- A run with an infrastructure error (a harness crash, no result event, no reward, or a model API error) runs again, at most three attempts. An error of the arm's own service (a 5xx, a 429 or a timeout of the MCP server, or a tool error `internal`, `too_many_requests`, `judge_unavailable` or `workspace_not_ready`) does not run again: the run fails with score 0 (ADR-075 decision 7). A run that stops at its turn, time or dollar limit (a result `error_max_*`, a request that the gateway refused, or the agent timeout of Harbor) does not run again and fails the task; with no reward, its score is 0.
+- Before and after each CTX run, `run.py` reads the snapshot that the Workspace serves (`list_files` of the root, field `served`) into `snapshot` of the record. Thus a run with no tool result also names its snapshot.
 - Before each run, `run.py` writes its reserve to `gateway/<run>/reserve.txt`. A run with no record (an invocation that stopped during the run) keeps that full reserve in the spend of the next invocation.
 - **The cache.** A baseline arm (an arm with no MCP: `b1plus`, `oracle`) reuses a record from `~/.cache/ctxpipe-bench/cache/` when the key is the same: a hash of the task folder, the snapshot (the plan, the context repo SHA and the repository count), the harness (the Harbor and Claude Code versions, the turn limit), the model with its prices and cap, the arm config with its preamble, and the trial. A cached record has `cached: true`, and its cost does not count in the spend of the new invocation. The CTX arm never uses the cache, because production can change.
 - **A candidate run (plan §5.4)** uses a local stack: `--mcp-url http://host.docker.internal:3660/mcp --telemetry-env local-<name>`, with a backend that exports its spans to the shared collector ([USING.md](../../../../ops/observability/USING.md#localhost-telemetry)) and an org key from `mint-key.ts`. The proxy reaches the host, and the agent still reaches only the proxy.

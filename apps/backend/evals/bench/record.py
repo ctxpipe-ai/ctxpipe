@@ -187,9 +187,34 @@ def transcript(stream_path):
     return result, tools, errors, served, "\n".join(text)
 
 
+def task_config(task_dir):
+    """The task.toml of a task; run.py and analyze.py read its `[metadata]` (README.md)."""
+    path = task_dir / "task.toml"
+    return tomllib.loads(path.read_text()) if path.is_file() else {}
+
+
+def run_key(run):
+    """The identity of a run in a run folder: a new attempt of the same key replaces the record."""
+    return (run["model"], run["arm"], run["task"], run["trial"], run["repos"])
+
+
+def workspace_snapshot(mcp_url, key, org, workspace):
+    """The `branch@sha` that the Workspace serves now: `list_files` of the root names it (`served`)."""
+    headers = {"x-api-key": key, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "User-Agent": "orgbench-runner/1"}
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_files", "arguments": {"org": org, "workspace": workspace, "path": "", "excludeRepositories": []}}}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(mcp_url, json.dumps(body).encode(), headers), timeout=60) as response:
+            text = response.read().decode()
+        data = json.loads(next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text)
+        match = SERVED.search(" ".join(c.get("text", "") for c in data["result"]["content"]))
+    except (OSError, ValueError, KeyError, StopIteration) as error:
+        return f"error: {error}"
+    return f"{match.group(1)}@{match.group(2)}" if match else "error: no served field"
+
+
 def gold_seen(task_dir, tool_text):
     """The gold files that a tool call named or returned (the path, or the path in its repository)."""
-    meta = tomllib.loads((task_dir / "task.toml").read_text()).get("metadata", {})
+    meta = task_config(task_dir).get("metadata", {})
     seen = []
     for ref in meta.get("gold_context", []):
         path = ref.split("#")[0]
@@ -203,7 +228,7 @@ def read_json(path):
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd, mcp, started, ended, telemetry_env, org_slug, task_dir):
+def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd, mcp, started, ended, telemetry_env, org_slug, task_dir, snapshot):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial_dir = trials[0].parent if trials else out / "jobs" / run_id
     result, tools, mcp_errors, served, tool_text = transcript(trial_dir / "agent" / "claude-code.txt")
@@ -212,13 +237,12 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
     exception = (read_json(trial_dir / "result.json").get("exception_info") or {}).get("exception_type")
     gateway = read_json(out / "gateway" / run_id / "spend.json")
     proxy = read_json(out / "mcp" / run_id / "calls.json") if mcp else {}
+    # Each tool call that the server answered has a span, except a call with
+    # bad arguments: the MCP SDK refuses it before the tool runs.
+    expected_spans = proxy.get("toolCallsAnswered", 0) - mcp_errors.count("schema")
     server = {}
     if mcp:
-        server = server_spans(
-            run_id, env=telemetry_env, org_slug=org_slug, started=started, ended=ended,
-            # A call with bad arguments fails in the MCP SDK before the tool runs: it has no span.
-            expected_calls=proxy.get("toolCalls", 0) - mcp_errors.count("schema"),
-        )
+        server = server_spans(run_id, env=telemetry_env, org_slug=org_slug, started=started, ended=ended, expected_calls=expected_spans)
     statuses = proxy.get("statuses", {})
     own_service = (
         sum(n for code, n in statuses.items() if code == "429" or code.startswith("5"))
@@ -228,12 +252,18 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
     error = exception or (None if result else "no result event") or (None if reward_path.is_file() else "no reward")
     # The arm's own service errors count as failures; model API errors and
     # harness crashes are infrastructure and run again (ADR-075 decision 7).
-    # An agent that runs out of time or budget fails the task.
+    # An agent that stops at its turn, dollar or time limit fails the task
+    # (Claude Code then exits with an error, and Harbor can raise).
+    limit = (
+        str(result.get("subtype", "")).startswith("error_max")
+        or gateway.get("refused")
+        or exception == "AgentTimeoutError"
+    )
     if own_service:
         error_class = "own-service"
-    elif error and error != "AgentTimeoutError":
-        error_class = "infra"
-    elif result.get("is_error") and "API Error" in str(result.get("result")) and not gateway.get("refused"):
+    elif limit:
+        error_class = None
+    elif error or (result.get("is_error") and "API Error" in str(result.get("result"))):
         error_class = "infra"
     else:
         error_class = None
@@ -247,9 +277,8 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
                 invalid.append(f"{server['falkorSpans']} falkordb spans")
             if server["planeFallbackLogs"]:
                 invalid.append(f"{server['planeFallbackLogs']} knowledge_plane.fallback logs")
-            expected = proxy.get("toolCalls", 0) - mcp_errors.count("schema")
-            if server["toolSpans"] < expected:
-                invalid.append(f"{server['toolSpans']} tool spans for {expected} forwarded calls with valid arguments")
+            if server["toolSpans"] < expected_spans:
+                invalid.append(f"{server['toolSpans']} tool spans for {expected_spans} answered calls with valid arguments")
     seen, gold_count = gold_seen(task_dir, tool_text)
     return {
         "runId": run_id,
@@ -259,8 +288,9 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
         "trial": trial,
         "attempt": attempt,
         "repos": repos,
-        # An own-service error fails the run whatever the grader says.
-        "score": 0.0 if error_class == "own-service" else raw,
+        # An own-service error fails the run whatever the grader says, and a
+        # run with no reward that is not infrastructure fails the task.
+        "score": 0.0 if error_class == "own-service" or (raw is None and error_class is None) else raw,
         "rawScore": raw,
         "facts": read_json(trial_dir / "verifier" / "facts.json").get("facts"),
         "tokens": {
@@ -288,6 +318,9 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
         # The snapshot that the CTX arm read: `branch@sha` of each served hit
         # or file (the Workspace branch, or the pinned commit of a repository).
         "served": dict(served),
+        # The Workspace snapshot before and after the run (`list_files`), also
+        # for a run whose results name no snapshot.
+        "snapshot": snapshot,
         "proxy": proxy,
         "server": server,
         "valid": not invalid,

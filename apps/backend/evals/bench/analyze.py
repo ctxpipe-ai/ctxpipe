@@ -22,22 +22,22 @@ import collections
 import json
 import random
 import statistics
-import tomllib
 from pathlib import Path
 
-from record import run_cost
+from record import run_cost, run_key, task_config
 
 BASELINE = "b1plus"
 
 
-def failure_class(run, mcp_arm):
+def failure_class(run, arm):
+    """The failure class of a failed run; `arm` is its config in arms.json."""
     if run["errorClass"] == "own-service":
         return "own-service error"
     if run["errorClass"] == "infra":
         return "infra"
-    if mcp_arm and run["mcpCalls"] == 0:
+    if arm["mcp"] and run["mcpCalls"] == 0:
         return "tool not used"
-    if run["goldSeen"] or run["arm"] == "oracle":
+    if run["goldSeen"] or arm["goldContext"]:
         return "reasoning with gold seen"
     if run["argErrors"]:
         return "bad args"
@@ -58,14 +58,8 @@ def mean(values):
     return round(statistics.fmean(values), 4) if values else None
 
 
-def repo_bucket(count):
-    return "3+" if count >= 3 else str(count)
-
-
-def arm_summary(runs, pass_at, mcp_arm):
-    by_task = collections.defaultdict(list)
-    for r in runs:
-        by_task[r["task"]].append(r)
+def arm_summary(runs, pass_at, arm):
+    by_task = group(runs, "task")
     k = min(len(v) for v in by_task.values())
     passes = [r["score"] >= pass_at for r in runs]
     cost = sum(run_cost(r) for r in runs)
@@ -86,9 +80,9 @@ def arm_summary(runs, pass_at, mcp_arm):
         "turns": mean(r["turns"] for r in runs),
         "cachedRuns": sum(bool(r.get("cached")) for r in runs),
         "ownServiceErrorRuns": sum(r["errorClass"] == "own-service" for r in runs),
-        "failureClasses": dict(collections.Counter(failure_class(r, mcp_arm) for r in runs if r["score"] < pass_at)),
+        "failureClasses": dict(collections.Counter(failure_class(r, arm) for r in runs if r["score"] < pass_at)),
     }
-    if mcp_arm:
+    if arm["mcp"]:
         summary["mcp"] = {
             "calls": mcp_calls,
             "shareOfToolCalls": round(mcp_calls / tool_calls, 4) if tool_calls else None,
@@ -133,13 +127,12 @@ def group(runs, *keys):
 
 
 def task_metadata(tasks_dir, task):
-    path = Path(tasks_dir) / task / "task.toml"
-    meta = tomllib.loads(path.read_text()).get("metadata", {}) if path.is_file() else {}
-    repos = meta.get("repos", [])
+    meta = task_config(Path(tasks_dir) / task).get("metadata", {})
+    count = len(meta.get("repos", []))
     return {
         "family": meta.get("family"),
         "lexical_hook": meta.get("lexical_hook"),
-        "repoBucket": repo_bucket(len(repos)) if repos else None,
+        "repoBucket": ("3+" if count >= 3 else str(count)) if count else None,
     }
 
 
@@ -150,7 +143,7 @@ def analyze(folder, pass_at):
     # The last record of each run counts: an infrastructure error ran again.
     latest = {}
     for r in records:
-        latest[(r["model"], r["arm"], r["task"], r["trial"], r["repos"])] = r
+        latest[run_key(r)] = r
     invalid = [r for r in latest.values() if not r["valid"]]
     infra = [r for r in latest.values() if r["valid"] and r["errorClass"] == "infra"]
     counted = [r for r in latest.values() if r["valid"] and r["errorClass"] != "infra"]
@@ -173,12 +166,12 @@ def analyze(folder, pass_at):
         entry = {
             "model": model,
             "repos": repos,
-            "arms": {arm: arm_summary(rs, pass_at, config["arms"][arm]["mcp"]) for arm, rs in sorted(by_arm.items())},
+            "arms": {arm: arm_summary(rs, pass_at, config["arms"][arm]) for arm, rs in sorted(by_arm.items())},
             "paired": {arm: paired(by_arm, arm, tasks_meta) for arm in sorted(by_arm) if arm != BASELINE and BASELINE in by_arm},
             "runs": [
                 {k: r[k] for k in ("task", "arm", "trial", "score", "mcpCalls", "argErrors", "goldSeen", "errorClass")}
                 | {"usd": round(run_cost(r), 4), "workspaceShas": workspace_shas(r)}
-                | {"failure": failure_class(r, config["arms"][r["arm"]]["mcp"]) if r["score"] < pass_at else None}
+                | {"failure": failure_class(r, config["arms"][r["arm"]]) if r["score"] < pass_at else None}
                 for r in sorted(runs, key=lambda r: (r["task"], r["arm"], r["trial"]))
             ],
         }

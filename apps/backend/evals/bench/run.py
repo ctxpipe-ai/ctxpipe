@@ -28,34 +28,40 @@ import os
 import subprocess
 import sys
 import time
-import tomllib
 from importlib.metadata import version
 from pathlib import Path
 
 import corpus
 from analyze import write_report
-from record import byok_usage, record_run, run_cost
+from record import byok_usage, record_run, run_cost, run_key, task_config, workspace_snapshot
 
 BENCH = Path(__file__).resolve().parent
 CACHE = Path.home() / ".cache" / "ctxpipe-bench" / "cache"
-MAX_ATTEMPTS = 3
-
-
-def task_metadata(task_dir):
-    return tomllib.loads((task_dir / "task.toml").read_text()).get("metadata", {})
 
 
 def gold_context(task_dir, corpus_dir):
-    """The gold context of a task for the ORACLE arm: each file of `gold_context`, or its line range."""
+    """The gold context of a task for the ORACLE arm: each file of `gold_context`, or its lines (`#L10-80`, `#L42`)."""
+    root = corpus_dir.resolve()
     parts = []
-    for ref in task_metadata(task_dir)["gold_context"]:
+    for ref in task_config(task_dir)["metadata"]["gold_context"]:
         path, _, lines = ref.partition("#")
-        text = (corpus_dir / path).read_text(errors="replace").splitlines()
+        # The text goes to the model host: refuse a path (or a link) out of the corpus.
+        file = (root / path).resolve()
+        if not file.is_relative_to(root):
+            raise SystemExit(f"{task_dir.name}: the gold file {ref} is not in the corpus")
+        text = file.read_text(errors="replace").splitlines()
         if lines:
-            start, end = (int(n) for n in lines.lstrip("L").split("-L" if "-L" in lines else "-"))
-            text = text[start - 1 : end]
+            start, _, end = lines.replace("L", "").partition("-")
+            text = text[int(start) - 1 : int(end or start)]
         parts.append(f'<file path="{ref}">\n' + "\n".join(text) + "\n</file>")
     return "\n\n".join(parts)
+
+
+def check_task(task_dir):
+    """A task must give the agent phase no egress: run.py adds only the sidecars (README.md)."""
+    agent = task_config(task_dir).get("agent", {})
+    if agent.get("network_mode") != "allowlist" or agent.get("allowed_hosts"):
+        raise SystemExit(f"{task_dir.name}: task.toml must set [agent] network_mode = \"allowlist\" and allowed_hosts = []")
 
 
 def preamble(config, twin, arm):
@@ -105,7 +111,7 @@ def job_config(args, config, twin, arm_name, model_name, task_dir, run_id, corpu
     }
 
 
-def harbor_env(args, config, arm, model, run_id, out):
+def harbor_env(args, config, arm, model, run_id):
     """The environment of Harbor: a small allowlist, not a copy of the host environment.
 
     The model key goes only to the model gateway, and the bench key only to
@@ -124,17 +130,16 @@ def harbor_env(args, config, arm, model, run_id, out):
         MODEL_GATEWAY_MODEL=model["id"],
         MODEL_GATEWAY_PRICES=json.dumps(model["pricesUsdPerMTok"]),
         MODEL_GATEWAY_BUDGET_USD=str(model["runCapUsd"]),
-        MODEL_GATEWAY_OUT=str(out / "gateway" / run_id),
+        MODEL_GATEWAY_OUT=str(args.out / "gateway" / run_id),
     )
     if arm["mcp"]:
-        (out / "mcp" / run_id).mkdir(parents=True)
         env.update(
             MCP_PROXY_UPSTREAM=args.mcp_url,
             MCP_PROXY_KEY=os.environ["CTXPIPE_API_KEY"],
             MCP_PROXY_CONVERSATION_ID=run_id,
             MCP_PROXY_TOOLS=",".join(arm["mcpTools"]),
             MCP_PROXY_MAX_TOOL_CALLS=str(config["maxToolCalls"]),
-            MCP_PROXY_OUT=str(out / "mcp" / run_id),
+            MCP_PROXY_OUT=str(args.out / "mcp" / run_id),
         )
     return env
 
@@ -146,12 +151,13 @@ def tree_hash(folder):
     return digest.hexdigest()
 
 
-def cache_key(config, twin, arm_name, model_name, task_dir, trial, repos):
+def cache_key(config, twin, arm_name, model_name, task_dir, trial, size):
     """The key of a baseline record: task, snapshot, harness version, model, arm config, trial."""
     arm = config["arms"][arm_name]
     key = {
         "task": tree_hash(task_dir),
-        "snapshot": {"plan": twin["plan"], "context": twin["context"], "repos": repos},
+        # Each repository as source@sha, and the context repo: a changed pin is a new key.
+        "snapshot": corpus.snapshot(twin, size),
         "harness": {"harbor": version("harbor"), "claudeCode": config["claudeCodeVersion"], "maxTurns": config["maxTurns"]},
         "model": config["models"][model_name],
         "arm": {"name": arm_name, **arm, "preamble": preamble(config, twin, arm)},
@@ -163,10 +169,10 @@ def cache_key(config, twin, arm_name, model_name, task_dir, trial, repos):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True, help="run folder, in a path Docker can mount")
-    parser.add_argument("--tasks-dir", type=Path, default=BENCH / "tasks" / "zulip-v1")
-    parser.add_argument("--tasks", help="comma-separated task ids (default: each task of --tasks-dir)")
     parser.add_argument("--twin", default="zulip-v1")
-    parser.add_argument("--repos", type=int, help="scale sweep: the count of repositories of the B1+ corpus (5, 50, 200)")
+    parser.add_argument("--tasks-dir", type=Path, help="the task folders (default: tasks/<twin>)")
+    parser.add_argument("--tasks", help="comma-separated task ids (default: each task of --tasks-dir)")
+    parser.add_argument("--repos", type=int, help="scale sweep, B1+ only: the count of repositories of the corpus (5, 50, 200)")
     parser.add_argument("--cap-usd", type=float, default=2.0)
     parser.add_argument("--models", default="haiku")
     parser.add_argument("--arms", default="b1plus,ctx,oracle")
@@ -176,22 +182,31 @@ def main():
     args = parser.parse_args()
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
+    args.tasks_dir = args.tasks_dir or BENCH / "tasks" / args.twin
     config = json.loads((BENCH / "arms.json").read_text())
     twin = config["twins"][args.twin]
+    arms = args.arms.split(",")
+    plan_size = len(corpus.plan_repositories(twin))
+    # The CTX arm reads the production Workspace, which has the repositories
+    # of the plan only: the sweep changes only the corpus of B1+.
+    if args.repos not in (None, plan_size) and arms != ["b1plus"]:
+        raise SystemExit(f"--repos {args.repos} runs only the arm b1plus (the bench Workspace has {plan_size} repositories)")
+    repos = len(corpus.snapshot(twin, args.repos)["repositories"])
     task_ids = args.tasks.split(",") if args.tasks else sorted(p.name for p in args.tasks_dir.iterdir() if (p / "task.toml").is_file())
-    corpus_dir = corpus.build(args.twin, args.repos)
-    repos = len(list((corpus_dir / "repos").iterdir()))
+    for task in task_ids:
+        check_task(args.tasks_dir / task)
+    corpus_dir = None
     runs_path = args.out / "runs.jsonl"
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
     # An infrastructure error (a model API error, a harness crash) runs
     # again. Each other result counts, also an error of the own service.
-    done = {(r["model"], r["arm"], r["task"], r["trial"], r["repos"]) for r in runs if r["errorClass"] != "infra"}
+    done = {run_key(r) for r in runs if r["errorClass"] != "infra"}
     # A run with no record (an invocation that stopped during the run) keeps its full reserve.
     recorded = {r["runId"] for r in runs}
     spent = sum(run_cost(r) for r in runs if not r.get("cached")) + sum(
         float(path.read_text()) for path in (args.out / "gateway").glob("*/reserve.txt") if path.parent.name not in recorded
     )
-    (args.out / "invocation.json").write_text(json.dumps({"twin": args.twin, "tasksDir": str(args.tasks_dir), "repos": repos, "corpus": str(corpus_dir), "mcpUrl": args.mcp_url, "telemetryEnv": args.telemetry_env}, indent=2))
+    (args.out / "invocation.json").write_text(json.dumps({"twin": args.twin, "tasksDir": str(args.tasks_dir), "repos": repos, "corpus": corpus.snapshot(twin, args.repos), "mcpUrl": args.mcp_url, "telemetryEnv": args.telemetry_env}, indent=2))
     # The byok_usage counter of OpenRouter lags by up to a minute, so it
     # checks the spend of the whole invocation, not of each run.
     byok_before, new_runs, status = byok_usage(), [], 0
@@ -207,19 +222,22 @@ def main():
             # Task first, so that the arms of a task run one after the other.
             for task in task_ids:
                 task_dir = args.tasks_dir / task
-                for arm_name in args.arms.split(","):
+                for arm_name in arms:
                     arm = config["arms"][arm_name]
                     for trial in range(1, arm.get("trials", args.trials) + 1):
                         if (model_name, arm_name, task, trial, repos) in done:
                             continue
                         cache_path = None
                         if not arm["mcp"]:
-                            cache_path = CACHE / f"{cache_key(config, twin, arm_name, model_name, task_dir, trial, repos)}.json"
+                            cache_path = CACHE / f"{cache_key(config, twin, arm_name, model_name, task_dir, trial, args.repos)}.json"
                             if cache_path.is_file():
                                 append({**json.loads(cache_path.read_text()), "cached": True})
                                 print(f"cached {model_name} {arm_name} {task} trial {trial}", flush=True)
                                 continue
-                        for attempt in range(1, MAX_ATTEMPTS + 1):
+                        if (arm["mountCorpus"] or arm["goldContext"]) and corpus_dir is None:
+                            # Only a baseline run that is not in the cache needs the files.
+                            corpus_dir = corpus.build(twin, args.repos)
+                        for attempt in range(1, 4):
                             # The model gateway stops the agent at the cap of the
                             # run. The server calls of a CTX run (a query embedding
                             # and Jev for each search) have no dollar cap: the MCP
@@ -235,18 +253,24 @@ def main():
                             config_path.write_text(json.dumps(job_config(args, config, twin, arm_name, model_name, task_dir, run_id, corpus_dir), indent=2))
                             (args.out / "gateway" / run_id).mkdir(parents=True)
                             (args.out / "gateway" / run_id / "reserve.txt").write_text(str(reserve))
-                            env = harbor_env(args, config, arm, model, run_id, args.out)
+                            snapshot = {}
+                            if arm["mcp"]:
+                                (args.out / "mcp" / run_id).mkdir(parents=True)
+                                snapshot["before"] = workspace_snapshot(args.mcp_url, os.environ["CTXPIPE_API_KEY"], twin["ctxOrg"], twin["ctxWorkspace"])
                             started = time.time()
                             print(f"run {run_id}", flush=True)
                             subprocess.run(
                                 [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
-                                check=False, env=env,
+                                check=False, env=harbor_env(args, config, arm, model, run_id),
                             )
+                            ended = time.time()
+                            if arm["mcp"]:
+                                snapshot["after"] = workspace_snapshot(args.mcp_url, os.environ["CTXPIPE_API_KEY"], twin["ctxOrg"], twin["ctxWorkspace"])
                             run = record_run(
                                 out=args.out, run_id=run_id, model=model_name, arm=arm_name, task=task, trial=trial,
                                 attempt=attempt, repos=repos, cap_usd=model["runCapUsd"], mcp=arm["mcp"],
-                                started=started, ended=time.time(), telemetry_env=args.telemetry_env,
-                                org_slug=twin["ctxOrg"], task_dir=task_dir,
+                                started=started, ended=ended, telemetry_env=args.telemetry_env,
+                                org_slug=twin["ctxOrg"], task_dir=task_dir, snapshot=snapshot,
                             )
                             append(run)
                             new_runs.append(run)

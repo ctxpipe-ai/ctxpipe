@@ -10,6 +10,7 @@ the plan. See README.md.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -54,26 +55,36 @@ def link_tree(source, target):
                 os.link(src, out / name)
 
 
-def repositories(twin, size):
+def plan_repositories(twin):
     plan = json.loads((BENCH / twin["plan"]).read_text())
-    repos = [r for corpus in plan["corpora"] for r in corpus["repositories"]]
-    if size is None or size == len(repos):
-        return repos
-    if size < len(repos):
-        return repos[:size]
-    distractors = json.loads((BENCH / "distractors.json").read_text())["repositories"]
-    if size - len(repos) > len(distractors):
-        raise SystemExit(f"distractors.json has {len(distractors)} repositories, the size needs {size - len(repos)}")
-    return repos + distractors[: size - len(repos)]
+    return [r for corpus in plan["corpora"] for r in corpus["repositories"]]
 
 
-def build(twin_name, size=None):
-    """The corpus folder of the twin at this size; build it when it is missing."""
-    twin = json.loads((BENCH / "arms.json").read_text())["twins"][twin_name]
-    repos = repositories(twin, size)
-    view = CACHE / "views" / f"{twin_name}-r{len(repos)}"
+def snapshot(twin, size=None):
+    """The exact content of the corpus at this size: each repository as `source@sha`, and the context repo."""
+    repos = plan_repositories(twin)
+    if size is not None and size < len(repos):
+        repos = repos[:size]
+    elif size is not None and size > len(repos):
+        distractors = json.loads((BENCH / "distractors.json").read_text())["repositories"]
+        if size - len(repos) > len(distractors):
+            raise SystemExit(f"distractors.json has {len(distractors)} repositories, the size needs {size - len(repos)}")
+        repos = repos + distractors[: size - len(repos)]
+    context = twin["context"]
+    return {"repositories": [f"{r['source']}@{r['sha']}" for r in repos], "context": f"{context['repo']}@{context['sha']}:{','.join(context['paths'])}"}
+
+
+def build(twin, size=None):
+    """The corpus folder of the twin at this size; build it when it is missing.
+
+    The folder name holds a hash of the snapshot, so a changed pin builds a new folder.
+    """
+    content = snapshot(twin, size)
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()[:16]
+    view = CACHE / "views" / f"r{len(content['repositories'])}-{digest}"
     if view.is_dir():
         return view
+    repos = [dict(zip(("source", "sha"), ref.split("@"))) for ref in content["repositories"]]
     tmp = view.with_name(view.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     names = [r["source"].split("/")[1] for r in repos]
@@ -95,4 +106,4 @@ if __name__ == "__main__":
     parser.add_argument("--twin", default="zulip-v1")
     parser.add_argument("--repos", type=int, help="the count of repositories (default: the repositories of the plan)")
     args = parser.parse_args()
-    print(build(args.twin, args.repos))
+    print(build(json.loads((BENCH / "arms.json").read_text())["twins"][args.twin], args.repos))

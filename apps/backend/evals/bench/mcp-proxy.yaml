@@ -51,10 +51,11 @@ configs:
       TOOLS = set(os.environ["PROXY_TOOLS"].split(","))
       MAX_TOOL_CALLS = int(os.environ["PROXY_MAX_TOOL_CALLS"])
       MAX_BODY = 64 * 1024
-      TIMEOUT = 300
       DROP = {"host", "connection", "content-length", "transfer-encoding", "traceparent", "tracestate", "baggage", "x-api-key", "authorization", "cookie", "x-ctxpipe-conversation-id"}
       lock = threading.Lock()
-      calls = {"toolCalls": 0, "statuses": {}, "timeouts": 0, "connectionErrors": 0, "refusedTools": {}, "refusedCap": 0}
+      # toolCallsAnswered: the forwarded tool calls with a 2xx answer (each
+      # has a server span, except a call with bad arguments).
+      calls = {"toolCalls": 0, "toolCallsAnswered": 0, "statuses": {}, "timeouts": 0, "connectionErrors": 0, "refusedTools": {}, "refusedCap": 0}
 
 
       def save():
@@ -95,7 +96,8 @@ configs:
               if message.get("method") == "tools/call":
                   name = str((message.get("params") or {}).get("name"))
                   if name not in TOOLS:
-                      count("refusedTools", name)
+                      # Each other name counts as one key, so that the file stays small.
+                      count("refusedTools", name if name in {"get_related"} else "other")
                       return self.send_error(403, "the CTX arm does not allow this tool")
                   with lock:
                       if calls["toolCalls"] >= MAX_TOOL_CALLS:
@@ -104,9 +106,10 @@ configs:
                           return self.send_error(429, "the run used its tool calls")
                       calls["toolCalls"] += 1
                       save()
+                  return self.forward(body, tool_call=True)
               self.forward(body)
 
-          def forward(self, body):
+          def forward(self, body, tool_call=False):
               if self.path != "/mcp":
                   return self.send_error(404)
               headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP}
@@ -114,7 +117,7 @@ configs:
               headers["x-api-key"] = KEY
               headers["x-ctxpipe-conversation-id"] = CONVERSATION
               connection = http.client.HTTPSConnection if UPSTREAM.scheme == "https" else http.client.HTTPConnection
-              upstream = connection(UPSTREAM.hostname, UPSTREAM.port, timeout=TIMEOUT)
+              upstream = connection(UPSTREAM.hostname, UPSTREAM.port, timeout=300)
               try:
                   upstream.request(self.command, UPSTREAM.path, body, headers)
                   response = upstream.getresponse()
@@ -125,6 +128,8 @@ configs:
                   count("connectionErrors")
                   return self.send_error(502, "the proxy cannot reach the MCP server")
               count("statuses", str(response.status))
+              if tool_call and response.status < 300:
+                  count("toolCallsAnswered")
               self.send_response(response.status)
               for k, v in response.getheaders():
                   if k.lower() not in {"connection", "content-length", "transfer-encoding", "set-cookie"}:
