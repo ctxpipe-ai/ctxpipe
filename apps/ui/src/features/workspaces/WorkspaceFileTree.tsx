@@ -419,18 +419,24 @@ function WorkspaceFileTreeClient(props: {
   // The member closes the search with Escape or the header button. Pierre
   // leaves DOM focus in the search field, and TREE_UNSAFE_CSS hides a closed
   // search field, so focus the selected row: a keyboard member keeps a
-  // visible focus.
+  // visible focus. The query can hide the selected row, so wait until the
+  // tree renders it again.
   const closeSearchAndFocusRow = () => {
     search.close()
     const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
     if (!selected) return
     model.getItem(selected)?.focus()
-    model
-      .getFileTreeContainer()
-      ?.shadowRoot?.querySelector<HTMLElement>(
-        `button[data-item-path="${CSS.escape(selected)}"]`,
-      )
-      ?.focus()
+    const focusRow = (framesLeft: number) => {
+      const row = model
+        .getFileTreeContainer()
+        ?.shadowRoot?.querySelector<HTMLElement>(
+          `button[data-item-path="${CSS.escape(selected)}"]`,
+        )
+      if (row) row.focus()
+      else if (framesLeft > 0)
+        requestAnimationFrame(() => focusRow(framesLeft - 1))
+    }
+    requestAnimationFrame(() => focusRow(5))
   }
 
   const listedPathsRef = useRef(entries.paths)

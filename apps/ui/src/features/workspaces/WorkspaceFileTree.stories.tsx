@@ -261,7 +261,7 @@ function PierreKeyboardFocusHarness(
 export const PierreKeyboardFocus = meta.story({
   parameters: {
     intent:
-      "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
+      "Catches a file tree search that loses keyboard focus. Escape or the header button closes the search and returns focus to the selected row, also when the query hid that row. Typing then Enter selects a file. Not for the file list content.",
   },
   tags: ["required"],
   args: {
@@ -284,7 +284,19 @@ export const PierreKeyboardFocus = meta.story({
       findInShadows(canvasElement, "input") ??
       findInShadows(canvasElement, "[role='searchbox']")
     if (!input) throw new Error("Pierre search field was not found")
+
+    // Escape without Enter cancels the query, which hid the selected row.
     await userEvent.type(input, "billing")
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expectFocusOnSelectedRow(canvasElement, /AGENTS/))
+
+    await userEvent.click(search)
+    await waitFor(() => {
+      const tree = findInShadows(canvasElement, "[role='tree']")?.getRootNode()
+      expect(tree instanceof ShadowRoot && tree.activeElement).toBe(input)
+    })
+    // The closed search field keeps its text: delete it first.
+    await userEvent.type(input, "{Backspace>20/}billing")
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(args.onSelect).toHaveBeenCalled()
@@ -300,9 +312,9 @@ export const PierreKeyboardFocus = meta.story({
         findInShadows(canvasElement, "input"),
       )
     })
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Close search" }),
-    )
+    const close = await canvas.findByRole("button", { name: "Close search" })
+    await userEvent.click(close)
+    await userEvent.unhover(close)
     await waitFor(() => expectFocusOnSelectedRow(canvasElement, /billing/i))
     expect(args.onSelect).toHaveBeenCalled()
   },
