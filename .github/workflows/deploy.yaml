@@ -514,10 +514,44 @@ jobs:
           FORGE_DISABLE_ANALYTICS: "1"
         run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod
 
+  # Whether this push publishes a canary: a commit after the commit of the
+  # npm `canary` of @ctxpipe/aws-cdk adds a changeset of that package
+  # (scripts/ci/canary-plan.mjs). The comparison is with npm, so a cancelled
+  # run or a failed publish loses no canary. It holds no token.
+  canary_plan:
+    timeout-minutes: 5
+    name: Plan the canary
+    if: github.event_name == 'push'
+    # github-hosted: a short job that reads npm and git (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      # The full history: the plan reads the commits after the canary commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - id: plan
+        run: node scripts/ci/canary-plan.mjs
+
+  # A snapshot of each package with a changeset, on an npm dist-tag. Never
+  # `latest`. A dispatch without `deploy` publishes `ref` on `dist_tag`. A push
+  # to main publishes HEAD on `canary` when canary_plan says so, after
+  # publish_images gave each image the tag of HEAD on GHCR. The package pins
+  # its images to HEAD.
   prerelease:
     timeout-minutes: 20
     name: Prerelease
-    if: github.event_name == 'workflow_dispatch' && !inputs.deploy
+    needs:
+      - canary_plan
+      - publish_images
+    if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && !inputs.deploy) || (needs.canary_plan.outputs.publish == 'true' && needs.publish_images.result == 'success')) }}
     # github-hosted: a package build and the npm publish, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -537,6 +571,15 @@ jobs:
       - name: Refuse a commit that is not on main
         run: git merge-base --is-ancestor HEAD origin/main
 
+      # The images that the package pins to HEAD
+      # (packages/aws-cdk/src/internal/task-definitions-construct.ts). A
+      # self-hosted stack pulls them with no credentials.
+      - name: Check that the images of HEAD pull without credentials
+        run: |
+          for image in backend worker ui codesearch chat-sandbox; do
+            bash scripts/ci/check-image-public.sh "ctxpipe-ai/$image" "$(git rev-parse HEAD)"
+          done
+
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
@@ -555,4 +598,4 @@ jobs:
       - name: Publish snapshot prerelease
         run: IMAGE_TAG="$(git rev-parse HEAD)" pnpm ci:prerelease
         env:
-          SNAPSHOT_TAG: ${{ inputs.dist_tag }}
+          SNAPSHOT_TAG: ${{ inputs.dist_tag || 'canary' }}
