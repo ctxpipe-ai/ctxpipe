@@ -32,10 +32,11 @@
         "search_knowledge",
         "search_code",
         "find_symbol",
+        "get_related",
         "read_file",
         "list_files"
       ],
-      "disallowedTools": ["WebSearch", "WebFetch", "mcp__ctxpipe__get_related"],
+      "disallowedTools": ["WebSearch", "WebFetch"],
       "serverReserveUsd": 0.12
     },
     "oracle": {

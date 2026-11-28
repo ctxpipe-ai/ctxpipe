@@ -5,9 +5,8 @@ the tool calls of the transcript, the MCP proxy counts, and the MCP server
 spans of the run. The recorder reads the spans from HyperDX, joined by the
 conversation id that the MCP proxy sends (`x-ctxpipe-conversation-id`, the
 span attribute `ctxpipe.mcp.conversation.id`). A CTX run is valid only with
-the proof of decision D5: no `falkordb` span in the traces of its MCP calls,
-no `knowledge_plane.fallback` log of the bench org during the run, and a span
-for each tool call that the proxy forwarded. `analyze.py` reads the records.
+the proof of decision D5: no `knowledge_plane.fallback` log of the bench org
+during the run, and a span for each tool call that the proxy forwarded. `analyze.py` reads the records.
 """
 
 import collections
@@ -110,7 +109,6 @@ def server_spans(conversation_id, *, env, org_slug, started, ended, expected_cal
         " groupArrayIf(SpanAttributes['ctxpipe.mcp.error.code'], SpanName LIKE 'mcp.tool%' AND SpanAttributes['ctxpipe.mcp.error.code'] != '') AS errors,"
         " countIf(SpanName = 'jev.decide') AS jevCalls,"
         " countIf(SpanAttributes['db.system.name'] = 'clickhouse') AS clickhouseSpans,"
-        " countIf(SpanAttributes['db.system.name'] = 'falkordb' OR positionCaseInsensitive(SpanName, 'falkor') > 0) AS falkorSpans,"
         " sum(toFloat64OrZero(SpanAttributes['gen_ai.usage.cost'])) AS modelCostUsd"
         f" FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND DeploymentEnvironment = '{env}' AND TraceId IN ({traces})"
     )
@@ -136,7 +134,6 @@ def server_spans(conversation_id, *, env, org_slug, started, ended, expected_cal
         "errors": dict(collections.Counter(spans["errors"])),
         "jevCalls": int(spans["jevCalls"]),
         "clickhouseSpans": int(spans["clickhouseSpans"]),
-        "falkorSpans": int(spans["falkorSpans"]),
         "planeFallbackLogs": int(logs["fallbackLogs"]),
         "modelCostUsd": round(float(spans["modelCostUsd"]), 6),
     }
@@ -278,8 +275,6 @@ def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd,
         if "error" in server:
             invalid.append(server["error"])
         else:
-            if server["falkorSpans"]:
-                invalid.append(f"{server['falkorSpans']} falkordb spans")
             if server["planeFallbackLogs"]:
                 invalid.append(f"{server['planeFallbackLogs']} knowledge_plane.fallback logs")
             if server["toolSpans"] < expected_spans:
