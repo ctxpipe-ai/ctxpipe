@@ -55,7 +55,7 @@ configs:
       lock = threading.Lock()
       # toolCallsAnswered: the forwarded tool calls with a 2xx answer (each
       # has a server span, except a call with bad arguments).
-      calls = {"toolCalls": 0, "toolCallsAnswered": 0, "statuses": {}, "timeouts": 0, "connectionErrors": 0, "refusedTools": {}, "refusedCap": 0}
+      calls = {"toolCalls": 0, "toolCallsAnswered": 0, "statuses": {}, "timeouts": 0, "connectionErrors": 0, "refusedTools": 0, "refusedCap": 0}
 
 
       def save():
@@ -96,8 +96,7 @@ configs:
               if message.get("method") == "tools/call":
                   name = str((message.get("params") or {}).get("name"))
                   if name not in TOOLS:
-                      # Each refused name counts as one key, so that the file stays small.
-                      count("refusedTools", "other")
+                      count("refusedTools")
                       return self.send_error(403, "the CTX arm does not allow this tool")
                   with lock:
                       if calls["toolCalls"] >= MAX_TOOL_CALLS:

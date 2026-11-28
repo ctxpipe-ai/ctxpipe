@@ -5,8 +5,8 @@ the tool calls of the transcript, the MCP proxy counts, and the MCP server
 spans of the run. The recorder reads the spans from HyperDX, joined by the
 conversation id that the MCP proxy sends (`x-ctxpipe-conversation-id`, the
 span attribute `ctxpipe.mcp.conversation.id`). A CTX run is valid only with
-the proof of decision D5: no `knowledge_plane.fallback` log of the bench org during the run, and a span
-for each tool call that the proxy forwarded. `analyze.py` reads the records.
+the proof of decision D5: no `knowledge_plane.fallback` log of the bench org
+during the run, and a span for each tool call that the proxy forwarded. `analyze.py` reads the records.
 """
 
 import collections

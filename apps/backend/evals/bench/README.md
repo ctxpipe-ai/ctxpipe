@@ -64,7 +64,7 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
-Decision D5 allows only the knowledge plane (ClickHouse and Jev, the org flag `knowledge_plane` at `on`) in the CTX arm. The bench Workspace is ready on the plane, so `get_related` reads the plane graph (ClickHouse and Jev). The CTX arm allows each of the seven tools: the checks of `record.py` enforce D5, not the removal of a tool. `search_code` and `find_symbol` read codesearch (Zoekt and SCIP). When a Workspace is not ready on the plane, the fallback of each other tool reads Postgres or Git. Each fallback writes the log `knowledge_plane.fallback`. A run with a fallback did not use the plane.
+Decision D5 allows only the knowledge plane (ClickHouse and Jev, the org flag `knowledge_plane` at `on`) in the CTX arm. The bench Workspace is ready on the plane, so `get_related` reads the plane graph (ClickHouse and Jev). The CTX arm allows each of the seven tools: the checks of `record.py` enforce D5, not the removal of a tool. `search_code` and `find_symbol` read codesearch (Zoekt and SCIP). When a Workspace is not ready on the plane, the fallback of each tool reads Postgres or Git. Each fallback writes the log `knowledge_plane.fallback`. A run with a fallback did not use the plane.
 
 The recorder reads the server spans of each CTX run from HyperDX (`DeploymentEnvironment` of `--telemetry-env`, default `production`): the traces whose `mcp.tool` span has the conversation id of the run. A CTX run is valid only when all of these are true:
 
