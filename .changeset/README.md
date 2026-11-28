@@ -14,6 +14,8 @@ CI runs `changeset status` on pull requests and fails when a versionable workspa
 
 Use an **empty** changeset (only the two `---` lines, no text) for a change that an operator does not see or act on: CI, workflows, scripts, tests, types, telemetry, internal refactors, agent instructions, and docs. Do not use an empty changeset for an operator-visible change.
 
+App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changeset picker — **do not select them**. Apps are not published to npm; for app-only work, include only **`@ctxpipe/aws-cdk`** in the changeset.
+
 ## Kind
 
 A changeset that names a package starts its summary with a kind tag. The release notes list the changes in three groups by kind.
@@ -35,8 +37,6 @@ Example:
 
 fix: The sandbox host starts again after a reboot.
 ```
-
-App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changeset picker — **do not select them**. Apps are not published to npm; for app-only work, include only **`@ctxpipe/aws-cdk`** in the changeset.
 
 ## Release flow
 

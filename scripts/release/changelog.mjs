@@ -24,13 +24,11 @@ const groups = [
 // The kind of a changeset summary, or null when the first line has no tag.
 export function parseKind(summary) {
   const kinds = groups.map(([kind]) => kind).join("|")
-  const match = new RegExp(`^(${kinds})(!?): +(?=\\S)`).exec(summary.trimStart())
+  // Only the blank lines before the summary go, so the tag starts the line.
+  const text = summary.replace(/^\s*\n/, "")
+  const match = new RegExp(`^(${kinds})(!?): +(?=\\S)`).exec(text)
   if (!match) return null
-  return {
-    kind: match[1],
-    breaking: match[2] === "!",
-    text: summary.trimStart().slice(match[0].length),
-  }
+  return { kind: match[1], breaking: match[2] === "!", text: text.slice(match[0].length) }
 }
 
 // The comment that keeps the kind of an entry until `regroup` reads it.
@@ -86,7 +84,7 @@ export function regroup(changelog) {
   for (const item of entries) {
     const text = item.join("\n").trimEnd()
     const match = markerPattern.exec(text)
-    if (!match || !byKind.has(match[1])) {
+    if (!match) {
       byKind.get("other").push({ breaking: false, text })
       continue
     }
