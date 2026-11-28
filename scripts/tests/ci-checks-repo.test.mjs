@@ -411,8 +411,8 @@ test("the OrgBench smoke check is selected only by the files of the MCP tool sur
   const [smoke] = guarded
   assert.equal(smoke.selectBy, "inputs")
   assert.equal(smoke.stochastic, true)
-  // Its inputs are exactly the files of the tool surface that exist, with no
-  // directory pattern, no test and no file outside the surface.
+  // Its inputs are exactly the code files of the tool surface, with no test
+  // and no file outside the surface, and the folder of the agent guidance.
   const tracked = spawnSync(
     "git",
     [
@@ -425,14 +425,16 @@ test("the OrgBench smoke check is selected only by the files of the MCP tool sur
   )
     .stdout.split("\n")
     .filter(Boolean)
-  const surface = tracked.filter(
+  const code = tracked.filter(
     (path) =>
       (path === "apps/backend/src/mcp/tools.ts" ||
-        /^apps\/backend\/src\/mcp\/(tools|framework)\//.test(path) ||
-        path.startsWith("plugins/ctxpipe/skills/")) &&
+        /^apps\/backend\/src\/mcp\/(tools|framework)\//.test(path)) &&
       !/\.(test|latency|intent)\./.test(path),
   )
-  assert.deepEqual(smoke.inputs, surface.toSorted())
+  assert.deepEqual(smoke.inputs, [
+    ...code.toSorted(),
+    "plugins/ctxpipe/skills/**",
+  ])
   const selects = (path) =>
     smoke.inputs.some((input) => matchesInput(input, path))
   // A tool descriptor (name, description, input schema) and the agent
@@ -442,6 +444,8 @@ test("the OrgBench smoke check is selected only by the files of the MCP tool sur
     "apps/backend/src/mcp/framework/tool-registry.ts",
     "apps/backend/src/mcp/framework/schemas.ts",
     "plugins/ctxpipe/skills/ctxpipe-context/SKILL.md",
+    // A new skill, or a deleted one.
+    "plugins/ctxpipe/skills/ctxpipe-review/SKILL.md",
   ])
     assert.ok(selects(path), path)
   // No other change selects it: a test of a tool, the transport, the bench

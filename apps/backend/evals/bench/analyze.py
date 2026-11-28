@@ -256,8 +256,11 @@ def analyze(folder, pass_at, l0_win=False):
         "passAt": pass_at,
         "spendUsd": round(sum(run_cost(r) for r in records if not r.get("cached")), 4),
         "infraRetries": sum(r["errorClass"] == "infra" for r in records),
-        "invalidRuns": [{"runId": r["runId"], "reasons": r["invalidReasons"]} for r in invalid],
-        "unresolvedInfraRuns": [{"runId": r["runId"], "error": r["error"]} for r in infra],
+        # A run id names its task, so a tier with aggregates only lists no run.
+        "invalidRuns": [] if aggregate_only else [{"runId": r["runId"], "reasons": r["invalidReasons"]} for r in invalid],
+        "unresolvedInfraRuns": [] if aggregate_only else [{"runId": r["runId"], "error": r["error"]} for r in infra],
+        "invalidRunCount": len(invalid),
+        "unresolvedInfraRunCount": len(infra),
         "tasks": {} if aggregate_only else tasks_meta,
         "groups": [],
     }
@@ -276,7 +279,7 @@ def analyze(folder, pass_at, l0_win=False):
             ],
         }
         if CANDIDATE in by_arm and KEPT in by_arm:
-            entry["keep"] = keep_rule(by_arm, tasks_meta, rules["keep"], l0_win or invocation.get("l0Win", False))
+            entry["keep"] = keep_rule(by_arm, tasks_meta, rules["keep"], l0_win)
         if any(r.get("sentinel") for r in runs):
             entry["sentinel"] = sentinel_drift(runs, rules["sentinel"])
         if aggregate_only:
@@ -293,6 +296,8 @@ def markdown(report):
     lines.append(f"B1+ and ORACLE corpus: the plan of the twin and the context repo at `{report['contextSha'][:8]}`. CTX MCP: `{report['mcpUrl']}`. A run passes at a score of {report['passAt']} or more. Spend of this folder: ${report['spendUsd']}. Infrastructure retries: {report['infraRetries']}.")
     if report["tier"]:
         lines.append(f"Tier: {report['tier']}{' (aggregate results only)' if report['aggregateOnly'] else ''}.")
+    if report["aggregateOnly"]:
+        lines.append(f"Invalid runs (left out): {report['invalidRunCount']}. Infrastructure errors that did not run again (left out): {report['unresolvedInfraRunCount']}.")
     if report["candidate"]:
         lines.append(f"Candidate MCP: `{report['candidate']['mcpUrl']}` (`{report['candidate']['telemetryEnv']}`); kept MCP: `{report['mcpUrl']}`.")
     lines.append("")

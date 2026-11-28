@@ -36,8 +36,8 @@ from pathlib import Path
 
 import corpus
 import tiers
-from analyze import analyze, write_report
-from record import byok_usage, record_run, run_cost, run_key, task_config, workspace_snapshot
+from analyze import CANDIDATE, KEPT, analyze, write_report
+from record import byok_usage, record_run, run_cost, run_key, task_config, tree_hash, workspace_snapshot
 
 BENCH = Path(__file__).resolve().parent
 CACHE = Path.home() / ".cache" / "ctxpipe-bench" / "cache"
@@ -147,13 +147,6 @@ def harbor_env(args, config, arm, model, run_id, endpoint):
     return env
 
 
-def tree_hash(folder):
-    digest = hashlib.sha256()
-    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
-        digest.update(str(path.relative_to(folder)).encode() + b"\0" + path.read_bytes() + b"\0")
-    return digest.hexdigest()
-
-
 def cache_key(config, twin, arm_name, model, task_dir, trial, size):
     """The key of a baseline record: task, snapshot, harness version, model, arm config, trial."""
     arm = config["arms"][arm_name]
@@ -173,7 +166,7 @@ def interleaved(arms, index):
     """The arms of the task at `index`: the candidate and the kept CTX change places on each other task, so neither always runs first."""
     if index % 2 == 0:
         return arms
-    swap = {"ctx:kept": "ctx:candidate", "ctx:candidate": "ctx:kept"}
+    swap = {KEPT: CANDIDATE, CANDIDATE: KEPT}
     return [swap.get(arm, arm) for arm in arms]
 
 
@@ -186,8 +179,6 @@ def main():
     parser.add_argument("--tasks", help="comma-separated task ids (default: each task of the tier, else each task that is not sealed)")
     parser.add_argument("--repos", type=int, help="scale sweep, B1+ only: the count of repositories of the corpus (5, 50, 200)")
     parser.add_argument("--cap-usd", type=float, help="the spend cap of the invocation (default: the cap of the tier, else 2; never above the cap of the tier)")
-    parser.add_argument("--run-cap-usd", type=float, help="the spend cap of each run in the model gateway (default: the tier, else the model in arms.json)")
-    parser.add_argument("--server-reserve-usd", type=float, help="the reserve for the server model calls of each CTX run (default: the tier, else the arm)")
     parser.add_argument("--models", help="comma-separated models of arms.json (default: the tier, else haiku)")
     parser.add_argument("--arms", help="comma-separated arms (default: the tier, else b1plus,ctx,oracle)")
     parser.add_argument("--trials", type=int, help="trials of each arm (default: the tier, else 1; ORACLE: 1)")
@@ -197,7 +188,6 @@ def main():
     parser.add_argument("--candidate-telemetry-env", help="the DeploymentEnvironment of the candidate stack (local-<name>)")
     parser.add_argument("--sentinel", type=int, help="the B1+ sentinel of a candidate run: B1+ runs again on the first N tasks (default: tiers.json)")
     parser.add_argument("--no-cache", action="store_true", help="run each baseline arm again and refresh its cache record; run the smoke tier again")
-    parser.add_argument("--l0-win", action="store_true", help="the L0 eval (evals/knowledge, holdout) kept the change: an input of the keep rule")
     args = parser.parse_args()
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -214,8 +204,8 @@ def main():
         raise SystemExit(f"--cap-usd {cap_usd} is above the cap of the tier {args.tier} (${tier['capUsd']})")
     if args.tier == "smoke" and (models != ["haiku"] or arms != ["ctx"] or args.candidate_mcp_url):
         raise SystemExit("the smoke tier runs only the CTX arm with Haiku; --mcp-url names the stack under test")
-    run_cap = args.run_cap_usd if args.run_cap_usd is not None else (tier or {}).get("runCapUsd")
-    server_reserve = args.server_reserve_usd if args.server_reserve_usd is not None else (tier or {}).get("serverReserveUsd")
+    run_cap = (tier or {}).get("runCapUsd")
+    server_reserve = (tier or {}).get("serverReserveUsd")
     endpoints = {"kept": {"url": args.mcp_url, "keyVar": "CTXPIPE_API_KEY", "telemetry": args.telemetry_env}}
     if args.candidate_mcp_url:
         # Production cannot serve unmerged code (D4): the candidate is a local
@@ -223,7 +213,7 @@ def main():
         if "ctx" not in arms or not args.candidate_telemetry_env:
             raise SystemExit("--candidate-mcp-url needs the arm ctx and --candidate-telemetry-env")
         endpoints["candidate"] = {"url": args.candidate_mcp_url, "keyVar": "CTXPIPE_CANDIDATE_API_KEY", "telemetry": args.candidate_telemetry_env}
-        arms = [a for a in arms if a != "ctx"] + ["ctx:kept", "ctx:candidate"]
+        arms = [a for a in arms if a != "ctx"] + [KEPT, CANDIDATE]
     plan_size = len(corpus.plan_repositories(twin))
     # The CTX arm reads the production Workspace, which has the repositories
     # of the plan only: the sweep changes only the corpus of B1+.
@@ -236,15 +226,12 @@ def main():
     sentinel = set()
     if args.candidate_mcp_url:
         sentinel = set(task_ids[: args.sentinel if args.sentinel is not None else tier_config["sentinel"]["size"]])
-    smoke_path = None
+    smoke = None
     if args.tier == "smoke":
         # One verdict for each tool surface: the same surface never runs twice.
-        smoke_surface = tiers.surface()
-        smoke_path = tiers.SMOKE_CACHE / f"{smoke_surface['hash']}.json"
-        if smoke_path.is_file() and not args.no_cache:
-            verdict = json.loads(smoke_path.read_text())
-            print(f"cached smoke verdict for tool surface {smoke_surface['hash'][:12]}: {'pass' if verdict['pass'] else 'fail'} {verdict['reasons']} (run folder {verdict['runFolder']}); no run, $0")
-            return 0 if verdict["pass"] else 1
+        smoke = tiers.Smoke(args, task_ids)
+        if not args.no_cache and (verdict := smoke.cached()) is not None:
+            return verdict
     aggregate_only = bool(tier and tier.get("aggregateOnly"))
     corpus_dir = None
     runs_path = args.out / "runs.jsonl"
@@ -262,7 +249,7 @@ def main():
         "twin": args.twin, "tasksDir": str(args.tasks_dir), "tier": args.tier, "aggregateOnly": aggregate_only,
         "repos": repos, "corpus": corpus.snapshot(twin, args.repos), "mcpUrl": args.mcp_url, "telemetryEnv": args.telemetry_env,
         "candidate": candidate and {"mcpUrl": candidate["url"], "telemetryEnv": candidate["telemetry"]},
-        "sentinel": sorted(sentinel), "l0Win": args.l0_win, "capUsd": cap_usd,
+        "surface": smoke and smoke.surface["hash"],
     }, indent=2))
     # The byok_usage counter of OpenRouter lags by up to a minute, so it
     # checks the spend of the whole invocation, not of each run.
@@ -284,7 +271,7 @@ def main():
                 for arm_name in interleaved(arms, index):
                     base = arm_name.split(":")[0]
                     arm = config["arms"][base]
-                    endpoint = endpoints["candidate" if arm_name == "ctx:candidate" else "kept"]
+                    endpoint = endpoints["candidate" if arm_name == CANDIDATE else "kept"]
                     for trial in range(1, arm.get("trials", trials) + 1):
                         if run_key({"model": model_name, "arm": arm_name, "task": task, "trial": trial, "repos": repos}) in done:
                             continue
@@ -354,15 +341,14 @@ def main():
                         if cache_path and run["errorClass"] is None:
                             cache_path.parent.mkdir(parents=True, exist_ok=True)
                             cache_path.write_text(json.dumps(run))
-        if smoke_path:
+        if smoke:
             report = analyze(args.out, 1.0)
             verdict = tiers.smoke_verdict(report, tier["verdict"])
             # Only a finished run keeps its verdict: a run that the cap stopped
             # returned above, and an infrastructure error is not a verdict of the surface.
-            if not report["unresolvedInfraRuns"]:
-                smoke_path.parent.mkdir(parents=True, exist_ok=True)
-                smoke_path.write_text(json.dumps({**verdict, "surface": smoke_surface, "runFolder": str(args.out), "mcpUrl": args.mcp_url, "at": int(time.time())}, indent=2) + "\n")
-            print(f"smoke verdict for tool surface {smoke_surface['hash'][:12]}: {'pass' if verdict['pass'] else 'fail'} {verdict['reasons']} {verdict['numbers']}")
+            if not report["unresolvedInfraRunCount"]:
+                smoke.write(verdict)
+            print(f"smoke verdict for tool surface {smoke.surface['hash'][:12]}: {'pass' if verdict['pass'] else 'fail'} {verdict['reasons']} {verdict['numbers']}")
             status = 0 if verdict["pass"] else 1
         return status
     finally:
@@ -381,5 +367,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

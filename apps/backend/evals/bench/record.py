@@ -10,6 +10,7 @@ during the run, and a span for each tool call that the proxy forwarded. `analyze
 """
 
 import collections
+import hashlib
 import json
 import os
 import re
@@ -182,6 +183,14 @@ def transcript(stream_path):
                         errors.append(result_code(block))
                     served.update(f"{branch}@{sha}" for branch, sha in SERVED.findall(result_text(block)))
     return result, tools, errors, served, "\n".join(text)
+
+
+def tree_hash(folder):
+    """The hash of each path and its bytes below `folder`: a task folder in a cache key."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+        digest.update(str(path.relative_to(folder)).encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 def task_config(task_dir):

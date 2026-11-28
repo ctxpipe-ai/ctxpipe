@@ -26,7 +26,7 @@ A task is a Harbor task folder: `instruction.md` (the question), `environment/Do
 
 | Key | Use |
 | --- | --- |
-| `split` | `dev`, `holdout` or `sealed`. Each task must have it. A run with no tier takes no sealed task; only `--tier release` does. |
+| `split` | `dev`, `holdout` or `sealed`. Each task must have it. A run with no tier takes only dev tasks; a holdout task runs only with `--tier holdout` or `release`, and a sealed task only with `--tier release`. |
 | `family` | The task family (`T1`, `T3`, `T4`, `T8a`, `T10a`, `T11`, `T12`): a stratum of the report. |
 | `lexical_hook` | `true` or `false`: a stratum of the report (ADR-075 decision 4). |
 | `repos` | The repositories of the gold evidence, as `owner/name`. Their count is a stratum (1, 2, 3+). |
@@ -119,7 +119,7 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 
 ## Tiers
 
-`--tier smoke|dev|holdout|release` takes the tasks of the splits of the tier in `tiers.json`, with its arms, models, trials and spend cap (plan §5.1). `--tasks` narrows the set to tasks of the tier. `--cap-usd` can lower the cap of the tier, never raise it. `--run-cap-usd` and `--server-reserve-usd` replace the cap of each run in the model gateway and the reserve of each CTX run.
+`--tier smoke|dev|holdout|release` takes the tasks of the splits of the tier in `tiers.json`, with its arms, models, trials and spend cap (plan §5.1). `--tasks` narrows the set to tasks of the tier. `--cap-usd` can lower the cap of the tier, never raise it. A tier can also set the cap of each run in the model gateway (`runCapUsd`) and the reserve of each CTX run (`serverReserveUsd`). A run with no tier takes the dev tasks, the arms `b1plus,ctx,oracle`, Haiku and a cap of $2. `run.py --tier <tier>` is the entry command of a campaign; the factory does not wrap it yet.
 
 | Tier | Tasks | Use |
 | --- | --- | --- |
@@ -145,7 +145,7 @@ Production cannot serve unmerged code (D4), so a candidate runs on a local stack
 … CTXPIPE_API_KEY=<bench key> CTXPIPE_CANDIDATE_API_KEY=<local key> .venv/bin/python evals/bench/run.py \
   --tier dev --out ~/.cache/ctxpipe-bench/runs/RUN \
   --candidate-mcp-url http://host.docker.internal:3660/mcp --candidate-telemetry-env local-<name> \
-  [--mcp-url <kept MCP, default production>] [--sentinel 15] [--l0-win]
+  [--mcp-url <kept MCP, default production>] [--sentinel 15]
 ```
 
 - The arm `ctx` becomes two arms on the same tasks in the same batch: `ctx:kept` (the MCP of `--mcp-url`) and `ctx:candidate`. They change places on each other task, so that neither always runs first. The MCP proxy of a candidate run reaches the host through `host.docker.internal`; the agent still reaches only the proxy.
@@ -155,7 +155,7 @@ Production cannot serve unmerged code (D4), so a candidate runs on a local stack
 
 The report of a candidate batch has the keep rule of ADR-075 decision 9 for `ctx:candidate` against `ctx:kept`, over the tasks that both ran:
 
-- **A win:** an L0 win, or an L2-process win. The L0 eval is `evals/knowledge` on its holdout split; give `--l0-win` (to `run.py` or `analyze.py`) when it kept the change. An L2-process win is a lower argument error rate (argument errors for each MCP call) or a higher tool adoption (runs with an MCP call), where the 95% bootstrap interval of the gain over the tasks lies above 0.
+- **A win:** an L0 win, or an L2-process win. The L0 eval is `evals/knowledge` on its holdout split; give `analyze.py RUN --l0-win` when it kept the change. An L2-process win is a lower argument error rate (argument errors for each MCP call) or a higher tool adoption (runs with an MCP call), where the 95% bootstrap interval of the gain over the tasks lies above 0.
 - **Non-inferiority:** for the score, the cost ($ of a run) and the harm (the score on the tasks of the `harmFamilies`, T12), the 95% bootstrap interval of the per-task delta must exclude a loss larger than its margin (`tiers.json`: 0.05 of score, 20% of the kept cost, 0.05 of harm score). The margins are fixed before the run.
 - **The verdict:** `keep` when it wins and each guard is non-inferior; `reject` when an interval shows a loss larger than its margin; else `inconclusive`, which does not keep the change. Fewer paired tasks than `minTasks` (10) are inconclusive. The report gives the delta, the interval and the margin of each guard, and the gain and the interval of each process metric.
 
@@ -172,7 +172,10 @@ The check makes no model call. Under `factory check`, no check gets the model ke
 ```
 
 - It runs the CTX arm with Haiku on the smoke list, 1 trial, with a cap of $0.15 for each run in the model gateway and $3 for the invocation. The gateway reserves the worst cost of each request (above 100,000 bytes of body, at the long-context price), so a run needs a cap of about $0.15.
-- It writes one verdict for each hash of the tool surface to `~/.cache/ctxpipe-bench/smoke/<hash>.json`. The hash is over the path and the bytes of each file of the surface (`node scripts/checks/evals.mjs surface`). When the verdict of the surface is there, the smoke tier makes no run and costs $0 (`--no-cache` runs it again). A run that the cap stopped, or that has an infrastructure error, writes no verdict.
+- It writes one verdict for each hash of the tool surface to `~/.cache/ctxpipe-bench/smoke/<hash>.json`. The hash is over the path and the bytes of each file of the surface (`node scripts/checks/evals.mjs surface`, tracked and new files). When the verdict of the surface is there, the smoke tier makes no run and costs $0 (`--no-cache` runs it again). A run that the cap stopped, or that has an infrastructure error, writes no verdict.
+- Only the smoke list of `tiers.json` in `tasks/<twin>` gives the verdict that the check reads. A run of other tasks (`--tasks`, `--tasks-dir`) keeps its verdict under `<hash>-<hash of the tasks>.json`.
+- The `--out` folder of a smoke run holds the runs of one tool surface: a folder of another surface is refused.
+- Production serves the tools of `main`. Thus the smoke tier refuses the production MCP when the surface of the checkout is not the surface of `origin/main`: give the MCP of a local stack of the checkout. The smoke tier cannot see which tools a local stack serves; the person or agent that starts it from the checkout states it.
 - The verdict is a breakage check, not a measure: it fails on an invalid run (D5), an infrastructure error, an own-service error, an argument error rate above 0.5, more than half of the tasks with no MCP call, more than half of the runs stopped at a limit, or a score more than 0.4 below `referenceScore` (set from the first baseline; `null` until then).
 - The check reads the verdict of the tool surface of the checkout: it passes or fails as the verdict does. Without a verdict, its prerequisite `bench-smoke` fails with the fix. It is stochastic, so it has no key and `factory check` stores no pass; it reads the verdict again at no cost. No job of PR CI runs it: the merge gate lists it as `not run by PR CI`.
 
