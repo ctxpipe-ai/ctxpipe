@@ -424,12 +424,37 @@ test("only a same-repo pull_request without gate input changes runs the selector
     "scripts/checks/toolchain.mjs",
     "scripts/ci/vitest-launch.mjs",
     ".npmrc",
-    "patches/a.patch",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
       reason: `gate inputs changed: ${path}`,
     })
+  // A patch is a definition of checks: the base listing installs without
+  // the patches of the PR, and the lockfile in each key holds the patch
+  // hash. A real full-run input beside a patch still gives the full run,
+  // and the reason names only that input.
+  const patches = [
+    "patches/@tanstack__ai-opencode@0.4.14.patch",
+    "patches/@tanstack__ai-opencode@1.0.1.patch",
+    "patches/fast-json-patch@3.1.1.patch",
+  ]
+  assert.deepEqual(
+    mode({ changed: ["pnpm-lock.yaml", ...patches, "scripts/ci/pins.json"] }),
+    {
+      mode: "select",
+      reason: "shadow",
+      definitions: [...patches, "scripts/ci/pins.json"],
+    },
+  )
+  for (const path of [".npmrc", "scripts/checks/families.mjs"])
+    assert.deepEqual(mode({ changed: [...patches, path] }), {
+      mode: "full",
+      reason: `gate inputs changed: ${path}`,
+    })
+  assert.deepEqual(mode({ changed: ["patches/node_modules/x.js"] }), {
+    mode: "full",
+    reason: "gate inputs changed: patches/node_modules/x.js",
+  })
   // A definition of checks runs the selector, and the plan compares the
   // listing of the PR with the listing of the base revision.
   for (const path of [
@@ -441,6 +466,7 @@ test("only a same-repo pull_request without gate input changes runs the selector
     "scripts/ci/test-suite.mjs",
     "scripts/ci/test-weights.json",
     "apps/ui/.storybook/check-modules.mjs",
+    "patches/a.patch",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "select",
@@ -1423,6 +1449,29 @@ test("every fallback gives a full run with the reason", () => {
       run: {},
     }).reason,
     "manifest job failure",
+  )
+})
+
+test("the summary heading names the mode of the run and the config mode", () => {
+  const text = (config, files) => summary(decide({ files, shadow: { config } }))
+  const fallback = {
+    "mode.json": { mode: "full", reason: "gate inputs changed: .npmrc" },
+  }
+  const gateFull = text({ ...pinned, mode: "gate" }, fallback)
+  assert.ok(gateFull.startsWith("## Merge gate (full run)\n"), gateFull)
+  assert.match(
+    gateFull,
+    /\*\*Mode:\*\* full \(`gate inputs changed: \.npmrc`\); config mode `gate`\./,
+  )
+  assert.ok(!gateFull.includes("shadow"))
+  const shadowFull = text(pinned, fallback)
+  assert.ok(shadowFull.startsWith("## Merge gate (full run)\n"))
+  assert.match(shadowFull, /config mode `shadow`/)
+  const shadowRun = text(pinned)
+  assert.ok(shadowRun.startsWith("## Merge gate (shadow)\n"))
+  assert.match(
+    shadowRun,
+    /\*\*Mode:\*\* shadow, config mode `shadow`; gated run would: \*\*fail\*\*/,
   )
 })
 

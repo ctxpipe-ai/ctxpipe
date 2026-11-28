@@ -186,8 +186,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // install`, `pnpm --reporter=silent checks:list`), so a file that changes
   // how the manifest is made is here too: .npmrc, the patches, and each file
   // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). Package files and the lockfile are lane inputs that
-  // the selector reads, not gate inputs. Other workflows, Markdown files and
+  // this list complete). The patches are definitions of checks (see below).
+  // Package files and the lockfile are lane inputs that the selector reads,
+  // not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
   // A data file in scripts/ci is a gate input, except a file that only its
   // own check reads and whose key holds it (a test keeps the list true).
@@ -251,15 +252,20 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // that the listing imports and that run the checks of every family stay
   // full-run inputs: families.mjs, the prerequisites and the host pins of
   // the runner, and toolchain.mjs, whose record is part of each key. A
-  // project key does not hold them.
+  // project key does not hold them. A patch is a definition too: the base
+  // listing installs without the patches of the PR, so a patch to a package
+  // that the listing loads (Vitest, Storybook) changes the comparison. The
+  // lockfile records a patch_hash for each patched package, and each key
+  // holds the lockfile, so a patch change misses each stored pass of a check
+  // that can load the package.
   const definitions = inputs.filter(
     (path) =>
       !/(?:^|\/)node_modules(?:\/|$)/.test(path) &&
       !/^scripts\/checks\/(?:families|prerequisites|toolchain)\.mjs$|^scripts\/ci\/(?:graph-ready|vitest-launch)\.mjs$/.test(
         path,
       ) &&
-      [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//].some((input) =>
-        input.test(path),
+      [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//, /^patches\//].some(
+        (input) => input.test(path),
       ),
   )
   inputs = inputs.filter((path) => !definitions.includes(path))
@@ -876,6 +882,7 @@ export function shadow({
       fallback ?? "shadow: the full run gates; the gated verdict is beside it",
     factory: config.factory?.version ?? null,
     acceptAgentResults: config.acceptAgentResults === true,
+    configMode: config.mode ?? null,
     run,
     fullRun: full,
   }
@@ -1324,12 +1331,18 @@ export function gateText(decision, runUrl) {
 }
 
 export function summary(decision, runUrl) {
-  const lines = ["## Merge gate (shadow)", ""]
+  // The heading names the mode of this run: a full run, or a shadow run
+  // with the gated verdict beside it. The mode line names the config mode.
+  const lines = [
+    `## Merge gate (${decision.mode === "full" ? "full run" : "shadow"})`,
+    "",
+  ]
   const gated = decision.gatedRun.verdict
+  const configured = `config mode ${code(String(decision.configMode ?? "none"))}`
   lines.push(
     decision.mode === "full"
-      ? `**Mode:** full (${code(decision.reason)}). The full run gates.`
-      : `**Mode:** full (shadow); gated run would: **${gated}**. The full run gates.`,
+      ? `**Mode:** full (${code(decision.reason)}); ${configured}. The full run gates.`
+      : `**Mode:** shadow, ${configured}; gated run would: **${gated}**. The full run gates.`,
     "",
     `**Full run:** ${decision.fullRun.verdict}${decision.fullRun.failed.length ? ` (failed: ${decision.fullRun.failed.map(code).join(", ")})` : ""}`,
     "",
