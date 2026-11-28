@@ -371,9 +371,57 @@ describe("decideNoul", () => {
       ).rejects.toMatchObject({ name: "JevError", kind: "timeout" })
     })
 
-    it("throws a config JevError for a decision provider that the backend does not support", async () => {
+    it("sends the questions to the Gemini decisions endpoint with no OpenRouter field", async () => {
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
       vi.stubEnv("DECISION_MODEL_PROVIDER", "gemini")
       vi.stubEnv("DECISION_MODEL_API_KEY", "gemini-key")
+      const endpoint =
+        "https://generativelanguage.googleapis.com/v1beta/decisions"
+      let body: unknown
+      let key: string | null = null
+      server.use(
+        http.post(endpoint, async ({ request }) => {
+          body = await request.json()
+          key = request.headers.get("x-goog-api-key")
+          return HttpResponse.json({
+            model: "gemini-decision-1",
+            answers: { sky: { type: "noul", noul: 0.3 } },
+          })
+        }),
+      )
+
+      expect(await ask()).toEqual(new Map([["sky", 0.3]]))
+      expect(key).toBe("gemini-key")
+      expect(body).toEqual({
+        model: "gemini-decision-1",
+        input: JSON.stringify(["The state."]),
+        questions: { sky: question },
+      })
+      const span = spans.spanNamed("jev.decide")
+      expect(span?.attributes["gen_ai.provider.name"]).toBe("gemini")
+      expect(span?.attributes["gen_ai.request.model"]).toBe("gemini-decision-1")
+
+      // The Gemini adapter puts the response body into its error message.
+      // The body can echo the state, so the JevError holds only the status.
+      server.use(
+        http.post(endpoint, () =>
+          HttpResponse.json(
+            { error: { message: "Bad input: The state." } },
+            { status: 400 },
+          ),
+        ),
+      )
+      await expect(ask()).rejects.toMatchObject({
+        name: "JevError",
+        kind: "http",
+        status: 400,
+        message: "The decision model answered HTTP 400.",
+      })
+    })
+
+    it("throws a config JevError for a decision provider that the backend does not support", async () => {
+      vi.stubEnv("DECISION_MODEL_PROVIDER", "anthropic")
+      vi.stubEnv("DECISION_MODEL_API_KEY", "anthropic-key")
 
       await expect(ask()).rejects.toMatchObject({
         name: "JevError",

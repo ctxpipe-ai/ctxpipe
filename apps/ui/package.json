@@ -43,7 +43,7 @@
     "@streamdown/mermaid": "^1.0.2",
     "@tabler/icons-react": "^3.37.1",
     "@tailwindcss/vite": "^4.3.5",
-    "@tanstack/ai": "^1.4.0",
+    "@tanstack/ai": "^1.8.0",
     "@tanstack/ai-react": "^1.0.2",
     "@tanstack/charts": "^1.5.0",
     "@tanstack/nitro-v2-vite-plugin": "^1.155.2",

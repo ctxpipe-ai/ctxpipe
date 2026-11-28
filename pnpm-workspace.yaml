@@ -29,6 +29,7 @@ trustPolicyExclude:
 allowBuilds:
   '@ast-grep/cli': false
   '@forge/cli': false
+  '@google/genai': false
   '@openrouter/sdk': false
   '@parcel/watcher': false
   cloudflared: false

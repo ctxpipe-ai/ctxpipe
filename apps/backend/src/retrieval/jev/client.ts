@@ -99,7 +99,7 @@ export async function decideNoul(
         if (!settings)
           throw new JevError(
             "config",
-            "The decision model needs DECISION_MODEL_PROVIDER openrouter or openai with DECISION_MODEL_API_KEY, or no decision setting and MODEL_PROVIDER openrouter or openai-like with MODEL_PROVIDER_API_KEY.",
+            "The decision model needs DECISION_MODEL_PROVIDER openrouter, openai or gemini with DECISION_MODEL_API_KEY, or no decision setting and MODEL_PROVIDER openrouter or openai-like with MODEL_PROVIDER_API_KEY.",
           )
         const { adapter, modelOptions } = decisionAdapter(settings)
         const scrubbed = await scrubForModel({ state, questions })
