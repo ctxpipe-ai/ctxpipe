@@ -99,6 +99,11 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ctxpipe}
+      # The deploy profile: the password that clickhouse-secrets wrote. The
+      # file wins over CLICKHOUSE_PASSWORD. The infra profile writes no file,
+      # so host dev keeps the password ctxpipe. After a deploy profile run
+      # in the same project, remove the volume clickhouse_admin for host dev.
+      CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-admin/password
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ctxpipe}
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-ctxpipe}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
@@ -110,7 +115,13 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       # The storage policy with the volume cold (ADR-066 decision 10).
       - ./apps/backend/src/knowledge-store/clickhouse-storage.xml:/etc/clickhouse-server/config.d/storage.xml:ro
+      - clickhouse_admin:/run/clickhouse-admin:ro
     # Never published, like postgres.
+    depends_on:
+      clickhouse-secrets:
+        condition: service_completed_successfully
+        # Not in the infra profile.
+        required: false
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
       interval: 5s
@@ -241,6 +252,39 @@ services:
       agent-vault-secrets:
         condition: service_completed_successfully
 
+  # Generates the ClickHouse passwords once (CTX-1712), each on its own
+  # volume: the admin password for ClickHouse and migrate, the reader
+  # password for migrate and the backend, the writer password for migrate
+  # and the worker. A password that `.env` sets wins and replaces the file.
+  # Any image with a shell does this job.
+  clickhouse-secrets:
+    profiles: [deploy]
+    image: *agent-vault-image
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["sh", "-ec"]
+    environment:
+      ADMIN: ${CLICKHOUSE_PASSWORD:-}
+      READER: ${CLICKHOUSE_READER_PASSWORD:-}
+      WRITER: ${CLICKHOUSE_WRITER_PASSWORD:-}
+    command:
+      - |
+        write() {
+          if [ -n "$$2" ]; then printf %s "$$2" > "$$1.tmp"
+          elif [ -s "$$1" ]; then return 0
+          else head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$$1.tmp"
+          fi
+          chmod 0444 "$$1.tmp"
+          mv "$$1.tmp" "$$1"
+        }
+        write /admin/password "$$ADMIN"
+        write /reader/password "$$READER"
+        write /writer/password "$$WRITER"
+    volumes:
+      - clickhouse_admin:/admin
+      - clickhouse_reader:/reader
+      - clickhouse_writer:/writer
+
   migrate:
     profiles: [deploy]
     build:
@@ -250,18 +294,27 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
-      # The admin user. Only migrate has it. Migrate makes the users
-      # ctxpipe_reader (backend) and ctxpipe_writer (worker) with these
-      # passwords (ADR-066 decision 9). They have no default: without a
-      # password, migrate makes no user, and the service cannot connect. Use
-      # only URL-safe characters in each ClickHouse password.
-      CLICKHOUSE_URL: http://${CLICKHOUSE_USER:-ctxpipe}:${CLICKHOUSE_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
-      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-}
-      CLICKHOUSE_WRITER_PASSWORD: ${CLICKHOUSE_WRITER_PASSWORD:-}
       # The backend modules migrate imports parse the app env, which needs it.
       AUTH_SECRET: ${AUTH_SECRET:-}
-    command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
+    # The admin user. Only migrate has it. Migrate makes the users
+    # ctxpipe_reader (backend) and ctxpipe_writer (worker) with the
+    # passwords that clickhouse-secrets wrote (ADR-066 decision 9).
+    command:
+      - sh
+      - -ec
+      - |
+        CLICKHOUSE_URL="http://${CLICKHOUSE_USER:-ctxpipe}:$$(cat /run/clickhouse-admin/password)@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}"
+        CLICKHOUSE_READER_PASSWORD="$$(cat /run/clickhouse-reader/password)"
+        CLICKHOUSE_WRITER_PASSWORD="$$(cat /run/clickhouse-writer/password)"
+        export CLICKHOUSE_URL CLICKHOUSE_READER_PASSWORD CLICKHOUSE_WRITER_PASSWORD
+        exec bun run apps/backend/src/db/migrate.ts
+    volumes:
+      - clickhouse_admin:/run/clickhouse-admin:ro
+      - clickhouse_reader:/run/clickhouse-reader:ro
+      - clickhouse_writer:/run/clickhouse-writer:ro
     depends_on:
+      clickhouse-secrets:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       clickhouse:
@@ -338,12 +391,17 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
-      # SELECT only: the backend cannot change the knowledge content.
-      CLICKHOUSE_URL: http://ctxpipe_reader:${CLICKHOUSE_READER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      # SELECT only: the backend cannot change the knowledge content. The
+      # password is the file that clickhouse-secrets wrote.
+      CLICKHOUSE_URL: http://ctxpipe_reader@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-reader/password
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       # The worker gets the same PORT: ingest sandboxes call the API on it.
       PORT: &api-port "3000"
+      # Only so that a new value in `.env` restarts the backend: the backend
+      # reads the password file once.
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-}
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
@@ -375,6 +433,7 @@ services:
     volumes:
       - sandbox_client_certs:/certs/client:ro
       - agent_vault_owner:/run/agent-vault:ro
+      - clickhouse_reader:/run/clickhouse-reader:ro
     networks:
       default:
       sandbox:
@@ -410,7 +469,9 @@ services:
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       # The projection writes the knowledge content. No access management.
-      CLICKHOUSE_URL: http://ctxpipe_writer:${CLICKHOUSE_WRITER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      # Each run reads the password file that clickhouse-secrets wrote.
+      CLICKHOUSE_URL: http://ctxpipe_writer@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-writer/password
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -441,6 +502,7 @@ services:
     volumes:
       - sandbox_client_certs:/certs/client:ro
       - agent_vault_owner:/run/agent-vault:ro
+      - clickhouse_writer:/run/clickhouse-writer:ro
     networks: [default, sandbox]
     depends_on:
       migrate:
@@ -533,6 +595,10 @@ volumes:
   indexer_cache:
   # The knowledge content. Derived from Git: a full hydrate rebuilds it.
   clickhouse_data:
+  # The generated ClickHouse passwords, one for each user.
+  clickhouse_admin:
+  clickhouse_reader:
+  clickhouse_writer:
   # Agent Vault's SQLite store (run vaults are deleted when runs end) and the
   # generated passwords (master: Agent Vault only; owner: backend and worker).
   agent_vault_data:

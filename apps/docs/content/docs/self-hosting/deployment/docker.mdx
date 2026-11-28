@@ -58,31 +58,35 @@ at build time. After you change it, build the images again with
 | `chat-sandbox-image` | One-shot: builds the sandbox image inside `dind` |
 | `agent-vault` | Adds credentials to sandbox requests. It is the only address that sandboxes can reach. |
 | `agent-vault-secrets` | One-shot: generates the Agent Vault passwords |
+| `clickhouse-secrets` | One-shot: generates the ClickHouse passwords |
 
 The backend is the only service on a public host port (`3000`). Compose binds
 `codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres,
 FalkorDB, and ClickHouse have no host port.
 
+## ClickHouse users
+
 Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
 
-| Service | ClickHouse user | Password in `.env` | Access |
+| Service | ClickHouse user | Password | Access |
 |---|---|---|---|
 | `migrate` | `CLICKHOUSE_USER` | `CLICKHOUSE_PASSWORD` | Admin. It makes the tables and the two other users. |
 | `backend` | `ctxpipe_reader` | `CLICKHOUSE_READER_PASSWORD` | Reads the knowledge tables only |
 | `worker` | `ctxpipe_writer` | `CLICKHOUSE_WRITER_PASSWORD` | Reads, inserts, and deletes rows in the knowledge tables, and reads the part names of these tables. It cannot manage users or row policies. |
 
-Set `CLICKHOUSE_READER_PASSWORD` and `CLICKHOUSE_WRITER_PASSWORD` before the
-first start. They have no default. Without them, `migrate` does not make the
-two users, and the backend and the worker cannot connect to ClickHouse.
+You do not have to set these passwords. At the first deploy, the one-shot
+service `clickhouse-secrets` generates a different random password for each
+user. It writes each password to its own volume (`clickhouse_admin`,
+`clickhouse_reader`, `clickhouse_writer`). Only the services in the row of a
+user mount its volume, and `migrate` mounts all three. A later deploy keeps
+the generated passwords.
 
-The default admin user and password are `ctxpipe`. Set your own
-`CLICKHOUSE_PASSWORD` too. `migrate` refuses the reader and writer passwords
-when the admin password is `ctxpipe`, or when two of the three passwords are
-the same.
-
-Use only URL-safe characters in each password. `CLICKHOUSE_DB` sets the
-database (default `ctxpipe`). To change a reader or writer password, change it
-in `.env` and run `migrate` again.
+To use your own password, set it in `.env`. A password in `.env` replaces the
+generated password at the next deploy. `migrate` then changes the reader or
+writer user to the new password. Use only URL-safe characters in each
+password, and use three different passwords: `migrate` refuses the same value
+for two users, and it refuses the admin password `ctxpipe`.
+`CLICKHOUSE_DB` sets the database (default `ctxpipe`).
 
 ## Settings that need an override file
 
@@ -160,6 +164,7 @@ The GitHub App therefore needs no variable.
 | Zoekt indexes | `zoekt_index_deploy` | No, codesearch indexes again |
 | SCIP indexer caches | `indexer_cache` | No, codesearch fills it again |
 | Agent Vault passwords and data | `agent_vault_master`, `agent_vault_owner`, `agent_vault_data` | Keep them. New passwords do not match an existing Agent Vault. |
+| ClickHouse passwords | `clickhouse_admin`, `clickhouse_reader`, `clickhouse_writer` | No. If you lose them, the next deploy generates new passwords, and `migrate` sets them on the users. |
 | Sandboxes and TLS certificates | `sandbox_docker`, `sandbox_ca`, `sandbox_client_certs` | No |
 | Secrets | `.env`, or your secret store | Yes |
 

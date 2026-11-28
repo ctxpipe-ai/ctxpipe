@@ -118,8 +118,10 @@ describe("parseKnowledgeFile", () => {
     })
     const own = parse(issue.path, issue.content)
     if (own.kind !== "unit") throw new Error(own.kind)
-    // A Linear identifier and the URL of its Linear workspace.
+    // Its Linear id (CTX-1716), its identifier and the URL of its Linear
+    // workspace.
     expect(own.references.keys).toEqual([
+      "ent:linear:issue-uuid-1",
       "iss:linear:ENG-1",
       "iss:linear:ENG-1@acme",
     ])

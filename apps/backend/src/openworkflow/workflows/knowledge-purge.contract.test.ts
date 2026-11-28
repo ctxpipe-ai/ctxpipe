@@ -4,7 +4,8 @@ import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
+import { organizations } from "../../db/schema/auth.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { purgeOrgDataBeforeAuthDelete } from "../../domain/repositoryDeletion.js"
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
@@ -28,10 +29,11 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { enqueueWorkflow } from "../client.js"
 import { enqueueKnowledgePurge } from "../enqueue-knowledge-purge.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { knowledgeProjection } from "./knowledge-projection.js"
-import { IDLE_WORKSPACE_CHECKS } from "./knowledge-purge.js"
+import { IDLE_CHECKS, knowledgePurgeUnversioned } from "./knowledge-purge.js"
 
 /*
  * CTX-1642: the deletion of an org or a Workspace deletes its rows of the
@@ -324,7 +326,7 @@ it(
 )
 
 it(
-  "an org delete queues one purge, which deletes the rows of each Workspace of the org and keeps the rows of another org; the org has no flag and no knowledge state; a later projection run writes nothing",
+  "an org delete queues one purge in its hook, which waits until the org row is gone, then deletes the rows of each Workspace of the org and keeps the rows of another org; a later projection run writes nothing",
   { timeout: 180_000 },
   async () =>
     withNativeHydrationFixture(
@@ -340,30 +342,120 @@ it(
         await seed(sibling)
         await seed(otherOrg)
         const kept = await rowsOf(otherOrg)
+        const before = await rowsOf(workspace)
+        expect(before.documents).toBeGreaterThan(0)
 
+        // The `beforeDeleteOrganization` hook commits its Postgres deletes
+        // and queues the purge of the org.
         await purgeOrgDataBeforeAuthDelete(f.org.id)
+        expect(
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ id: repositories.id })
+              .from(repositories)
+              .where(eq(repositories.orgId, f.org.id)),
+          ),
+        ).toEqual([])
+        expect(await runsOf("knowledge-purge", f.org.id)).toEqual([
+          expect.objectContaining({ workspaceId: null }),
+        ])
+        // While the org row is there, the purge waits and deletes nothing.
+        await vi.waitFor(
+          async () => {
+            await skipPurgeSleeps(f.org.id)
+            const outputs = (await purgeChecks(f.org.id)).map(
+              (step) => step.output,
+            )
+            expect(outputs.slice(0, 2)).toEqual(["org", "org"])
+          },
+          { timeout: 60_000, interval: 200 },
+        )
+        expect(await rowsOf(workspace)).toEqual(before)
+
+        // Better Auth deletes the org row after the hook.
+        await getSystemDb()
+          .delete(organizations)
+          .where(eq(organizations.id, f.org.id))
 
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: null }),
         ])
+        expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("erased")
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsInParts(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(otherOrg)).toEqual(kept)
-        expect(
-          await withOrgDbContext(f.org.id, (db) =>
-            db
-              .select()
-              .from(orgFeatures)
-              .where(eq(orgFeatures.organizationId, f.org.id)),
-          ),
-        ).toEqual([])
         expect(await getKnowledgeState(workspace)).toBeNull()
         expect(await listBranchHeads(workspace)).toEqual([])
 
+        // The Workspace row of the deleted org stays, but a projection run
+        // that starts after the delete of the org row writes nothing.
         expect(await projectAgain(f)).toBeNull()
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect(await getKnowledgeState(workspace)).toBeNull()
+      },
+    ),
+)
+
+it(
+  "the purge of an org whose row stays stops after its idle checks with org_kept, deletes nothing, and keeps the run of the next day",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await projected(f)
+        const workspace = { orgId: f.org.id, workspaceId: f.workspaceId }
+        const before = await rowsOf(workspace)
+        expect(before.documents).toBeGreaterThan(0)
+        // As an org delete whose hook queued the purge, and whose delete of
+        // the org row then failed.
+        await enqueueKnowledgePurge({ orgId: f.org.id, workspaceId: null })
+        // The delete can still come: the run of the next day stays.
+        await vi.waitFor(
+          async () => {
+            await skipPurgeSleeps(f.org.id)
+            expect(
+              (await runsOf("knowledge-purge", f.org.id)).map(
+                (run) => run.status,
+              ),
+            ).toEqual(["completed", "pending"])
+          },
+          { timeout: 120_000, interval: 200 },
+        )
+        const outputs = (await purgeChecks(f.org.id)).map((step) => step.output)
+        expect(outputs.slice(0, -1)).toEqual(Array(IDLE_CHECKS).fill("org"))
+        expect(outputs.at(-1)).toBeNull()
+        expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("org-kept")
+        expect(await rowsOf(workspace)).toEqual(before)
+        expect(await getKnowledgeState(workspace)).toMatchObject({
+          lastSha: f.sha,
+        })
+      },
+    ),
+)
+
+it(
+  "during a rolling deploy, an org delete through a backend of an earlier version (an org purge with no version) stops each later projection run, also while the org row is there",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await projected(f)
+        // A run of the applied tip returns `current` while the org is live.
+        expect(await projectAgain(f)).toMatchObject({
+          summary: { mode: "current" },
+        })
+        // The old hook queues its purge before Better Auth deletes the org
+        // row, and an old worker can run that purge with no wait for the
+        // delete.
+        await enqueueWorkflow(knowledgePurgeUnversioned.spec, {
+          orgId: f.org.id,
+          workspaceId: null,
+        })
+        expect(await projectAgain(f)).toBeNull()
       },
     ),
 )
@@ -460,7 +552,7 @@ it(
         const outputs = (await purgeChecks(f.org.id)).map((step) => step.output)
         const checks = outputs.slice(0, -1)
         expect(checks.filter((output) => output === "workspace")).toHaveLength(
-          IDLE_WORKSPACE_CHECKS,
+          IDLE_CHECKS,
         )
         expect(
           checks.every(

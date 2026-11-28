@@ -193,7 +193,7 @@ The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell
 
 ## Knowledge store
 
-`CtxPipe` always deploys ClickHouse 26.10 for the new knowledge store (ADR-066). The new knowledge store is off for every organization, and while it is off the backend and the worker do not use ClickHouse.
+`CtxPipe` always deploys ClickHouse 26.10 for the new knowledge store (ADR-066). The new knowledge store is on for every organization. After a deploy, the worker indexes each Workspace in ClickHouse, and Neptune answers for a Workspace until its index is complete. The new knowledge store needs model settings that reach OpenRouter (`modelProvider.kind: "openai-like"` with the OpenRouter URL and key). With `modelProvider.kind: "bedrock"`, Neptune continues to answer.
 
 - One Graviton EC2 host in an Auto Scaling group of one, in the first private subnet. ClickHouse runs in Docker on the host network, from the same pinned image as Docker Compose.
 - An encrypted gp3 EBS volume for the new parts and the cache of the old parts. The host attaches it when it boots, so a replacement host keeps the data. A stack delete keeps a snapshot.

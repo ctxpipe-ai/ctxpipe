@@ -19,17 +19,16 @@ import {
   type KnowledgeHead,
   readyKnowledgeHeads,
 } from "../models/knowledge-state.js"
-import { getOrgFeature } from "../models/org-features.js"
 import { log } from "../observability/logger.js"
 import { legacyKnowledgeReader } from "./legacy-reader.js"
 import { planeKnowledgeReader } from "./plane-reader.js"
-import { shadowKnowledgeReader } from "./shadow.js"
 
 /*
  * The knowledge reader seam of ADR-069 decision 9. The tools
  * (`search_knowledge`, `get_related`, the chat search and graph tools) and
- * the graph route read knowledge only through `KnowledgeReader`. The org
- * flag `knowledge_plane` picks the implementation for each request.
+ * the graph route read knowledge only through `KnowledgeReader`. The
+ * readiness of each Workspace on the plane picks the implementation for each
+ * request.
  */
 
 /** The stack that answers a read: the old stack, or the knowledge plane. */
@@ -92,35 +91,12 @@ type KnowledgeSelection = {
   planeHeads: ReadonlyMap<string, KnowledgeHead>
 }
 
-const flags = new Map<
-  string,
-  { value: Promise<"off" | "shadow" | "on">; expires: number }
->()
-
-/** The `knowledge_plane` flag of an org, read at most every 30 seconds. */
-function knowledgePlaneFlag(orgId: string): Promise<"off" | "shadow" | "on"> {
-  const now = Date.now()
-  const cached = flags.get(orgId)
-  if (cached && cached.expires > now) return cached.value
-  const value = getOrgFeature(orgId, "knowledge_plane")
-  flags.set(orgId, { value, expires: now + 30_000 })
-  // A failed read is not kept: the next request reads again.
-  value.catch(() => flags.delete(orgId))
-  return value
-}
-
 /**
- * The reader for one request over `workspaceIds` of `orgId`:
- * - `off`: the old stack.
- * - `shadow`: the old stack answers. When each Workspace is ready on the
- *   plane, the plane also runs after the answer, off the request path, and
- *   logs only ids, scores, overlap, latency and call counts.
- * - `on`: the plane answers when each Workspace is ready on it, else the old
- *   stack answers the whole request.
- * In `shadow` and `on`, a request that the old stack serves because a
- * Workspace is not ready logs one `knowledge_plane.fallback` event.
- * A Workspace is ready when a knowledge run applied a commit in full
- * (`knowledge_state.last_sha`).
+ * The reader for one request over `workspaceIds` of `orgId`: the plane when
+ * each Workspace is ready on it, else the old stack for the whole request.
+ * A request that the old stack serves because a Workspace is not ready logs
+ * one `knowledge_plane.fallback` event. A Workspace is ready when a
+ * knowledge run applied a commit in full (`knowledge_state.last_sha`).
  */
 export async function selectKnowledgeReader(
   orgId: string,
@@ -132,13 +108,7 @@ export async function selectKnowledgeReader(
   branch?: string,
 ): Promise<KnowledgeSelection> {
   const legacy = { reader: legacyKnowledgeReader, planeHeads: new Map() }
-  const flag = await knowledgePlaneFlag(orgId)
   if (branch !== undefined) {
-    if (flag !== "on")
-      throw new McpToolError(
-        "invalid_argument",
-        "A read of a branch needs the knowledge plane, which is not on for this org. Omit branch to read the default branch.",
-      )
     // Each actor that can read the Workspace can read each of its branches,
     // also the session branch of a conversation (ADR-071 decision 6).
     const heads = await readyKnowledgeHeads(orgId, workspaceIds, branch)
@@ -146,29 +116,20 @@ export async function selectKnowledgeReader(
     if (missing.length > 0) throw unknownBranch(branch)
     return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
   }
-  if (flag === "off" || workspaceIds.length === 0) return legacy
+  if (workspaceIds.length === 0) return legacy
   const heads = await readyKnowledgeHeads(orgId, workspaceIds)
   const notReadyIds = workspaceIds.filter((id) => !heads.has(id))
   if (notReadyIds.length > 0) {
-    // The rollout needs each Workspace of the org ready (ADR-069 decision
-    // 9). Ids only: no query and no content.
+    // Ids only: no query and no content.
     log.info({
       step: "knowledge_plane.fallback",
-      flag,
       orgId,
       workspaceIds,
       notReadyIds,
     })
     return legacy
   }
-  if (flag === "on")
-    return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
-  return {
-    reader: shadowKnowledgeReader(legacyKnowledgeReader, (meter) =>
-      planeKnowledgeReader({ heads, meter }),
-    ),
-    planeHeads: new Map(),
-  }
+  return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
 }
 
 /**
@@ -184,7 +145,7 @@ export async function selectFirstKnowledgeBranch(
   workspaceIds: readonly string[],
   branches: readonly string[],
 ): Promise<KnowledgeSelection & { branch?: string }> {
-  if (workspaceIds.length > 0 && (await knowledgePlaneFlag(orgId)) === "on")
+  if (workspaceIds.length > 0)
     for (const branch of branches) {
       const heads = await readyKnowledgeHeads(orgId, workspaceIds, branch)
       if (workspaceIds.every((id) => heads.has(id)))

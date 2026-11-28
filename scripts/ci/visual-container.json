@@ -1,6 +1,6 @@
 {
   "image": "mcr.microsoft.com/playwright",
-  "tag": "v1.63.0-noble",
+  "tag": "v1.65.1-noble",
   "platform": "linux/arm64",
-  "digest": "sha256:a0f4498920a5dbac63196d9140ed738ef00470f27e2e74029abd8850b7bd5717"
+  "digest": "sha256:56be08aca06bf736a928da2e3235a3b63ef71ee97313beb18c6019fea791aba4"
 }

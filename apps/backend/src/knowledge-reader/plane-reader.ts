@@ -33,28 +33,21 @@ import {
   type KnowledgeReadScope,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
-import {
-  isRetryableFetchFailure,
-  TransientHttpError,
-} from "../lib/withTransientHttpRetry.js"
+import { isRetryableFetchFailure } from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { documentTimesOutput } from "../mcp/framework/schemas.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
-import {
-  EmbeddingError,
-  embedQuery,
-} from "../retrieval/embeddings/textEmbeddings.js"
+import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   askDisagreementFacts,
   type DisagreementFacts,
-  disagreementCalls,
   type EvidenceItem,
   readDisagreements,
 } from "../retrieval/jev/disagreement.js"
-import { BudgetSpentError, notePartial } from "./failure.js"
+import { BudgetSpentError } from "./failure.js"
 import type {
   KnowledgeReader,
   RelatedRequest,
@@ -67,7 +60,6 @@ import {
   evidenceText,
   isBudgetSpent,
   judge,
-  type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
   retrievalDeadline,
   type TraversalNode,
@@ -92,11 +84,10 @@ export function knowledgeStore(): KnowledgeStore {
 
 /**
  * The plane reader of one request. `heads` is the served head of each
- * Workspace (ADR-071 decision 4). `meter` counts the model calls.
+ * Workspace (ADR-071 decision 4).
  */
 export function planeKnowledgeReader(input: {
   heads: ReadonlyMap<string, KnowledgeHead>
-  meter?: ModelMeter
 }): KnowledgeReader {
   /** The read scope of `workspaceIds`, with the head of each one. */
   const scopeOf = (
@@ -113,15 +104,9 @@ export function planeKnowledgeReader(input: {
       return { workspaceId, ...head }
     }),
   })
-  const meter = input.meter ?? {
-    jevCalls: 0,
-    jevCandidates: 0,
-    embeddingCalls: 0,
-  }
   // A kept vector of the same org and text needs no call (`queryVector`).
   const embed = (orgId: string, text: string) =>
     queryVector(orgId, text, async () => {
-      meter.embeddingCalls += 1
       try {
         return await embedQuery(text)
       } catch (error) {
@@ -129,14 +114,7 @@ export function planeKnowledgeReader(input: {
         // a 429, a 5xx or a network error ends the budget, and the call
         // returns partial, as when the budget ends.
         if (isRetryableFetchFailure(error))
-          throw new BudgetSpentError("The query embedding failed", {
-            // The status only: the shadow log gives the cause of the
-            // partial answer.
-            cause: new EmbeddingError(
-              "The query embedding failed",
-              error instanceof TransientHttpError ? error.status : undefined,
-            ),
-          })
+          throw new BudgetSpentError("The query embedding failed")
         throw error
       }
     })
@@ -148,15 +126,9 @@ export function planeKnowledgeReader(input: {
         scopeOf(request.orgId, request.workspaceIds),
         input.heads,
         embed,
-        meter,
       ),
     related: (request) =>
-      related(
-        request,
-        scopeOf(request.org.id, [request.workspace.id]),
-        embed,
-        meter,
-      ),
+      related(request, scopeOf(request.org.id, [request.workspace.id]), embed),
     graph: async ({ orgId, workspaceId }) => {
       // The graph view shows at most 5,000 documents and relations.
       const graph = await knowledgeStore().readGraph(
@@ -243,7 +215,6 @@ async function search(
   scope: KnowledgeReadScope,
   heads: ReadonlyMap<string, KnowledgeHead>,
   embed: (orgId: string, text: string) => Promise<number[]>,
-  meter: ModelMeter,
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
@@ -280,7 +251,6 @@ async function search(
     )
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
-    notePartial(meter, error)
     return { hits: [], partialReason: "total_timeout" }
   }
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
@@ -292,12 +262,11 @@ async function search(
   // A Jev failure or the end of the time budget keeps the search order.
   let unjudged: SearchResult["partialReason"]
   const [judged, relations] = await Promise.all([
-    judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
+    judge(inputs, query, "search", deadline).catch((error: unknown) => {
       // A Jev timeout is the end of the budget: Jev gets the rest of it.
       if (isBudgetSpent(error, deadline)) unjudged = "total_timeout"
       else if (error instanceof JevError) unjudged = "judge_unavailable"
       else throw error
-      notePartial(meter, error)
       return null
     }),
     // The claims of the hits: their out-relations only (CTX-1688). With no
@@ -389,7 +358,6 @@ async function related(
   { workspace, input }: RelatedRequest,
   scope: KnowledgeReadScope,
   embed: (orgId: string, text: string) => Promise<number[]>,
-  meter: ModelMeter,
 ): Promise<Ranking> {
   const deadline = retrievalDeadline()
   const store = knowledgeStore()
@@ -442,7 +410,6 @@ async function related(
     )
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
-    notePartial(meter, error)
     return {
       results: [],
       explored: { nodes: 0, edges: 0 },
@@ -492,7 +459,6 @@ async function related(
       bridge,
       maxDepth: input.maxDepth,
       walk,
-      meter,
       // The top answers come only from the answers that Jev judged before
       // the last layer and from the documents of the last judge. When these
       // are at most `disagreementItems`, the top answers are some of them.
@@ -506,7 +472,7 @@ async function related(
           ...pending.filter(canAnswer),
         ]
         if (possible.length > 0 && possible.length <= disagreementItems) {
-          earlyFacts = askFacts(question, possible, deadline, meter)
+          earlyFacts = askFacts(question, possible, deadline)
           earlyRelations = readRelations(possible)
         }
       },
@@ -518,12 +484,11 @@ async function related(
       claims = await topClaims(
         top,
         deadline,
-        earlyFacts ?? askFacts(question, top, deadline, meter),
+        earlyFacts ?? askFacts(question, top, deadline),
         earlyRelations ?? readRelations(top),
       ).catch((error: unknown) => {
         // The end of the budget gives the ranking with no claims.
         if (!isBudgetSpent(error, deadline)) throw error
-        notePartial(meter, error)
         traversal.partialReason = "total_timeout"
         return undefined
       })
@@ -695,11 +660,7 @@ function askFacts(
   question: string,
   nodes: readonly TraversalNode[],
   deadline: number,
-  meter: ModelMeter,
 ): Promise<DisagreementFacts> {
-  const calls = disagreementCalls(nodes.length)
-  meter.jevCalls += calls
-  if (calls > 0) meter.jevCandidates += nodes.length
   const facts = beforeDeadline(deadline, () =>
     askDisagreementFacts({
       question,

@@ -9,7 +9,7 @@ import {
 import { JevError } from "../retrieval/jev/client.js"
 import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import type { CandidateMeta } from "../retrieval/jev/state.js"
-import { BudgetSpentError, type Failure, notePartial } from "./failure.js"
+import { BudgetSpentError } from "./failure.js"
 
 /*
  * The retrieval loop of ADR-068 decisions 2 and 3. Layer 0 judges the seed
@@ -93,21 +93,6 @@ export const ORCHESTRATOR_DEFAULTS = {
    */
   scopedAt: 0.8,
 }
-
-/** The model calls of one retrieval, for the shadow log (no content). */
-export type ModelMeter = {
-  jevCalls: number
-  jevCandidates: number
-  embeddingCalls: number
-  /**
-   * The source and the code of the first error that the read turned into
-   * a partial answer (`notePartial`).
-   */
-  partialCause?: Failure
-}
-
-/** The candidates that one Jev call takes (the `judgeLayer` default). */
-const JEV_BATCH = 25
 
 /**
  * The `performance.now()` time at which a retrieval that starts now must
@@ -214,11 +199,8 @@ export async function judge(
   question: string,
   intent: string,
   deadline: number,
-  meter: ModelMeter,
 ): Promise<Judgment[]> {
   if (inputs.length === 0) return []
-  meter.jevCalls += Math.ceil(inputs.length / JEV_BATCH)
-  meter.jevCandidates += inputs.length
   // The key first, so that the order mixes the Workspaces. The Workspace
   // keeps the id unique.
   const idOf = ({ ref }: JudgeInput) => `${ref.docKey} ${ref.workspaceId}`
@@ -227,7 +209,8 @@ export async function judge(
       question,
       intent,
       timeoutMs: callTimeLimitMs(deadline),
-      batchSize: JEV_BATCH,
+      // The candidates that one Jev call takes (the `judgeLayer` default).
+      batchSize: 25,
       candidates: inputs.map((input) => ({
         id: idOf(input),
         text: input.text,
@@ -338,7 +321,6 @@ export async function traverse(input: {
   bridge: Promise<Omit<JudgeInput, "text">[]>
   maxDepth: number
   walk: WalkFilter
-  meter: ModelMeter
   onLastLayer?: (
     judged: readonly TraversalNode[],
     pending: readonly TraversalNode[],
@@ -368,7 +350,6 @@ export async function traverse(input: {
     input.question,
     input.intent,
     deadline,
-    input.meter,
   ).then((judged) => {
     seeds.forEach((seed, index) => {
       seed.pAnswers = judged[index]?.pAnswers ?? 0
@@ -470,7 +451,6 @@ export async function traverse(input: {
           input.question,
           input.intent,
           deadline,
-          input.meter,
         ),
         seedJudge,
       ])
@@ -486,7 +466,6 @@ export async function traverse(input: {
     await seedJudge
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
-    notePartial(input.meter, error)
     partialReason = "total_timeout"
   }
   // The seeds come first, when Jev judged them (also before the end of the

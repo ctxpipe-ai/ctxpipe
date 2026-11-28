@@ -4,21 +4,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
-import { setOrgFeature } from "../models/org-features.js"
 import { closeOpenWorkflowClient } from "../openworkflow/client.js"
 import { backfillKnowledgePlane } from "./backfill.js"
 
 /*
- * The backfill of an org that leaves `off` (CTX-1643), with a real Postgres
- * and the real OpenWorkflow tables. No worker runs here; the test reads the
- * queued runs.
+ * The backfill of an org (CTX-1643), with a real Postgres and the real
+ * OpenWorkflow tables. No worker runs here; the test reads the queued runs.
  */
 
 const orgId = generateObjectId("org")
@@ -39,12 +36,12 @@ async function projectionRuns() {
   return result.rows.map((row) => row.input.workspaceId)
 }
 
-async function completeDefaultRun(workspaceId: string) {
+async function completeDefaultRun(workspaceId: string, tip = "a".repeat(40)) {
   const key = { orgId, workspaceId, branch: "main" }
   await beginKnowledgeRun({ ...key, isDefault: true })
   await completeKnowledgeRun({
     ...key,
-    tip: "a".repeat(40),
+    tip,
     treeVersion: 1,
     baseBranch: null,
     projectionVersion: "1:test-model",
@@ -97,7 +94,6 @@ afterAll(async () => {
   )
   await withOrgDbContext(orgId, async (db) => {
     await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
-    await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
   })
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   await closeOpenWorkflowClient()
@@ -105,13 +101,7 @@ afterAll(async () => {
 })
 
 describe("the knowledge plane backfill", () => {
-  it("queues nothing while the flag is off", async () => {
-    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
-    expect(await projectionRuns()).toEqual([])
-  })
-
   it("queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
-    await setOrgFeature(orgId, "knowledge_plane", "shadow")
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([fresh])
     expect(await projectionRuns()).toEqual([fresh])
     const backfill = events.find(
@@ -124,12 +114,28 @@ describe("the knowledge plane backfill", () => {
     })
     expect(JSON.stringify(backfill)).not.toContain("Backfill proof")
 
-    // The first run failed: the next hosted update queues it again.
+    // The first run failed: the next deploy queues it again.
     await backfillKnowledgePlane(orgId)
     expect(await projectionRuns()).toEqual([fresh, fresh])
 
     await completeDefaultRun(fresh)
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
     expect(await projectionRuns()).toHaveLength(2)
+  })
+
+  it("queues a Workspace whose ready head is at an earlier tip, until a run applies the tip", async () => {
+    // A commit while the org had the flag `off`: no run applied it, and the
+    // head of the earlier tip stayed ready.
+    const tip = "b".repeat(40)
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ desiredSha: tip })
+        .where(eq(workspaces.id, ready)),
+    )
+    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([ready])
+
+    await completeDefaultRun(ready, tip)
+    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
   })
 })

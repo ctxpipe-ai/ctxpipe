@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 
 import { builds } from "./builds.mjs"
+import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
 import { withNeeds } from "./prerequisites.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
@@ -16,6 +17,7 @@ export const runners = {
   lint: runProjects,
   policy: runProjects,
   build: runProjects,
+  eval: runEvals,
 }
 
 // The checks with `portable` removed from each id in `denied`.
@@ -29,6 +31,7 @@ export async function listChecks() {
     listVitest(),
     listStorybook(),
     listProjects(),
+    listEvals(),
   ])
   // The checks that the nightly audit found not portable: their result
   // differed between platforms (the factory store report, NOT PORTABLE).
