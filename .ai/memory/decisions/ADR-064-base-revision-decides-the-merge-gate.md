@@ -14,7 +14,7 @@ The threat is a change to the gate that removes a check from the selection of it
 - **The mode leaves the manifest job as an output.** The base gate code decides it before any PR code runs in that job, so later PR code cannot change it.
 - **A gate input that no job of the PR run executes runs the selector.** These are `merge-gate.json`, `gate.mjs`, `plan.mjs`, `shard.mjs`, `schema.mjs` and `schema/*.json`. A test checks that no other source file imports or reads them. The new pin first selects the runs after the merge. The plan runs every test of the CI scripts (`policy:tests-*`) for such a change, so the LLM stage cannot drop a test of the changed gate code. Their keys hold the changed file, so a stored pass stays a hit.
 - **A check of a job-scoped `ci.yaml` change gets no PR store hit.** An earlier run of the PR can have run it with another `ci.yaml` under the same key.
-- **The other gate inputs keep the full run.** `ci.yaml` outside the steps of check jobs and `.github/actions/**` run from the PR, and only a full run proves a changed job graph. A module that lists and runs a family (`projects.mjs`, `evals.mjs`, `lanes.mjs`, `storybook.mjs`) decides which checks exist in its own run. A reference listing with the base code would run in the manifest job after PR code, so the PR could change what it reads. `list.mjs`, `families.mjs`, `run.mjs`, `selected.mjs`, `rerun-failed.mjs`, `log.mjs`, `prerequisites.mjs`, `visual.mjs`, `toolchain.mjs`, the trace files, the `scripts/ci` runners and data files, `.npmrc`, `patches/` and the list-time files outside `scripts/checks/` make or run the checks of several families or change every key.
+- **The other gate inputs keep the full run.** `ci.yaml` outside the steps of check jobs and `.github/actions/**` run from the PR, and only a full run proves a changed job graph. A module that lists and runs a family (`projects.mjs`, `evals.mjs`, `lanes.mjs`, `storybook.mjs`) decides which checks exist in its own run. A reference listing with the base code would run in the manifest job after PR code, so the PR could change what it reads. `list.mjs`, `families.mjs`, `run.mjs`, `selected.mjs`, `rerun-failed.mjs`, `log.mjs`, `prerequisites.mjs`, `visual.mjs`, `toolchain.mjs`, the trace files, the `scripts/ci` runners and data files, `.npmrc` and the list-time files outside `scripts/checks/` make or run the checks of several families or change every key.
 
 ## Consequences
 
@@ -50,7 +50,7 @@ The threat is the threat of this ADR: a fault, or an agent that wants its PR to 
   - `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs`, `scripts/ci/graph-ready.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them.
   - Each check that runs in CI runs through `selected.mjs` and `rerun-failed.mjs`.
   - The record of `toolchain.mjs` is part of each key.
-  - The manifest job installs with `.npmrc` and `patches/` before it lists.
+  - The manifest job installs with `.npmrc` before it lists.
   - Node loads a package from a committed `node_modules/` folder.
   - `.github/actions/**` and the other `ci.yaml` changes set up jobs in a way that no key holds.
 
@@ -92,3 +92,24 @@ The CTO decided this on 2026-11-23 ([CTX-1574](https://linear.app/ctxpipe/issue/
 - Main's delta decides no mode. A change of `main` to a full-run input gives no full run of the PR. The deterministic layers of main's delta select each check whose key holds such a file, and the LLM stage can drop such a check (with the dependency rule of the hard cases). A check whose key does not hold the file reuses a pass, as a hit does.
 - A PR run whose `main` moved makes one more model call, and its select job takes about 10 to 25 seconds more.
 - A definition change gets no carry, because its plan does not use the LLM job.
+
+## Revision 2026-11-28: a patch change is a definition of checks
+
+The CTO decided this on 2026-11-28. PR #1169 moved the TanStack AI packages to 1.x and changed three files in `patches/`. All 7 of its CI runs were full: up to about 240 runner minutes for each run, and 1,320 runner minutes in total. The mode record of each run gave `gate inputs changed:` with only the three patch files. Without them, `decideMode` gave the selector for the same diff, with `scripts/ci/pins.json` as a definition of checks.
+
+The rule had this reason: the manifest job installs with the patches of the PR before it lists the checks. But the controls of the 2026-11-16 revision already guard that case:
+
+- **The base listing guards the listing.** The job Merge gate base listing removes `patches/` with the other install files, installs the dependencies of the base revision, and lists the same tree. A patch to a package that `list.mjs` loads, such as Vitest or Storybook, can change the listing of the PR. Then the plan finds a difference (`definitionChanges` in `plan.mjs`) and gives the full run or runs the changed checks.
+- **The keys guard the results.** The pnpm lockfile records a `patch_hash` for each patched package, and a frozen install fails when a patch does not match it. Each Vitest, Storybook, project and screenshot key holds the lockfile. Thus a patch change misses each stored pass of the old patch.
+
+The decision:
+
+- **A file in `patches/` is a definition of checks.** A change to one runs the selector, and `definitions` in the mode record names it. The base listing runs, the plan compares the two listings, and the LLM stage does not decide the run.
+- **A committed `node_modules` path stays a full-run input**, also under `patches/`.
+- **`.npmrc` stays a full-run input.** It changes the install, but no key holds it.
+- **The job summary names the mode of the run.** Its heading was "Merge gate (shadow)" also for a full run in gate mode. Now the heading is "Merge gate (shadow)" only for a shadow run of the shadow config. When the full run gates, the heading is "Merge gate (full run)". The mode line names the config mode.
+
+### Consequences of the patch revision
+
+- A PR that changes a patch and the lockfile gets a gated run. It selects each check whose key holds a changed file. A lockfile change selects most checks, and CI runs only the checks that the author did not store.
+- A patch change that also changes many check ids in the PR listing gives a full run.
